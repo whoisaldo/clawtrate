@@ -46,6 +46,18 @@ export default tseslint.config(
     },
   },
   {
+    // The relay protocol runs in Workers, Node, Electron and Hermes, so it uses neither.
+    files: ["packages/relay-protocol/src/**/*.ts"],
+    languageOptions: { globals: {} },
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { patterns: [{ group: ["node:*"], message: "the relay protocol runs outside Node too" }] },
+      ],
+      "no-restricted-globals": ["error", "window", "document", "process", "Buffer", "require"],
+    },
+  },
+  {
     files: ["packages/ui/**/*.{ts,tsx}", "apps/desktop/src/renderer/**/*.{ts,tsx}"],
     languageOptions: { globals: { ...globals.browser } },
     plugins: { "react-hooks": reactHooks },

@@ -18,6 +18,7 @@ Every document in the repository, by what you want to do.
 - [Architecture](architecture.md): the pieces and how they talk to each other.
 - [Decisions](decisions.md): versions, protocol choices and the reasons behind them.
 - [The engine's guide](../packages/core/README.md): the bridge, the commands the interface sends and the state it reads, for building the interface on `@clawtrate/core`.
+- [The relay protocol](../packages/relay-protocol/README.md): frames, relay messages, the connector's register proof and the end-to-end Noise channel for reaching a gateway through the relay.
 - [The development gateway tool](../tools/dev-gateway/README.md): scripted provider accounts, sign-ins and the account checks.
 - [The computer plugin](../plugins/clawtrate-computer/README.md): a bot's own browser, watched live and taken over by a person.
 - [The rules plugin](../plugins/clawtrate-tool-rules/README.md): what each bot may do with its tools, asked first or never, while the plugin runs.
