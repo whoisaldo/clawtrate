@@ -9,6 +9,8 @@
     "apps/desktop/src/renderer/public/apple-touch-icon.png",
     "apps/desktop/src/renderer/public/favicon-32.png",
     "apps/desktop/src/renderer/public/favicon.ico",
+    "apps/mobile/assets/icon.png",
+    "apps/mobile/assets/logo-mark.png",
     "packages/ui/src/assets/logo-mark.png"
   ]
 }

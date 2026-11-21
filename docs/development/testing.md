@@ -8,6 +8,7 @@ pnpm typecheck
 pnpm test        # unit tests
 pnpm e2e         # end-to-end tests against a development gateway of their own
 pnpm visual      # screenshots and behaviour of the fixture mode; the baselines are macOS ones
+pnpm mobile:check  # on a Mac, after pnpm mobile:build: the iOS app in the Simulator (see ios.md)
 ```
 
 The memory plugin tests in `pnpm test` require OpenClaw 2026.10.6. Install it globally or set `OPENCLAW_PACKAGE_DIR` to the directory of that installed package.

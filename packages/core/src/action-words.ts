@@ -374,6 +374,10 @@ export const PHRASES = {
   waitingForAnswer: "Waiting for an answer",
   stopping: "Stopping…",
   reconnecting: (last: string) => `Reconnecting. Last seen ${last}`,
+  /** The person closed the connection; nothing is coming until they reconnect. */
+  disconnected: (last: string) => `Disconnected. Last seen ${last}`,
+  /** A reply is streaming and no tool runs. */
+  writing: "Writing",
 } as const;
 
 /** The run line (7.7). */

@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Clawtrate",
+    "slug": "clawtrate",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["ios"],
+    "ios": {
+      "bundleIdentifier": "dev.clawtrate.mobile",
+      "supportsTablet": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
+        "NSLocalNetworkUsageDescription": "Clawtrate connects to the OpenClaw gateway you choose, which is often a computer on your own network."
+      }
+    },
+    "plugins": [
+      "./config/with-switcher-privacy.mjs",
+      "expo-secure-store",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./node_modules/@expo-google-fonts/figtree/400Regular/Figtree_400Regular.ttf",
+            "./node_modules/@expo-google-fonts/figtree/400Regular_Italic/Figtree_400Regular_Italic.ttf",
+            "./node_modules/@expo-google-fonts/figtree/500Medium/Figtree_500Medium.ttf",
+            "./node_modules/@expo-google-fonts/figtree/600SemiBold/Figtree_600SemiBold.ttf",
+            "./node_modules/@expo-google-fonts/jetbrains-mono/400Regular/JetBrainsMono_400Regular.ttf"
+          ]
+        }
+      ]
+    ]
+  }
+}

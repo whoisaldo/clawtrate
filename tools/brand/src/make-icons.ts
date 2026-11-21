@@ -18,6 +18,7 @@ export const MANIFEST_PATH = join(ROOT, "assets/brand/generated.json");
 const DESKTOP_DIR = join(ROOT, "apps/desktop/resources");
 const WEB_DIR = join(ROOT, "apps/desktop/src/renderer/public");
 const UI_DIR = join(ROOT, "packages/ui/src/assets");
+const MOBILE_DIR = join(ROOT, "apps/mobile/assets");
 
 /** Multiply alpha by a rounded-rectangle mask, with a one-pixel antialiased edge. */
 function roundCorners(image: Image, radiusFraction: number): Image {
@@ -139,6 +140,10 @@ function main(): void {
     [join(WEB_DIR, "favicon-32.png")]: encodePng(tile(logo, 32)),
     [join(WEB_DIR, "apple-touch-icon.png")]: encodePng(resize(logo, 180, 180)),
     [join(UI_DIR, "logo-mark.png")]: encodePng(tile(logo, 128)),
+    // iOS rounds an app's icon itself, so it is the whole square, 1024 points.
+    [join(MOBILE_DIR, "icon.png")]: encodePng(resize(logo, 1024, 1024)),
+    // The mark on the iOS connection screens: 56 points at 3x.
+    [join(MOBILE_DIR, "logo-mark.png")]: encodePng(tile(logo, 168)),
   };
 
   for (const [path, bytes] of Object.entries(outputs)) {

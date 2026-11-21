@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   checkIds,
+  isIosCheck,
   listPlaywright,
   listVitest,
   parityProblems,
@@ -15,7 +16,8 @@ import {
 } from "./parity.ts";
 
 const ROOT = join(import.meta.dirname, "..");
-const LISTING = 60_000;
+// Four listings, the iOS app's two among them, on a machine that may be busy.
+const LISTING = 120_000;
 
 describe("the parity table", () => {
   it(
@@ -35,9 +37,18 @@ describe("the parity table", () => {
       expect(desktopUpdates.length).toBeGreaterThan(0);
       for (const titlePath of desktopUpdates) expect(checkIds([titlePath])).toContain("F-231");
       expect(checkIds(listings.get("playwright.visual.config.ts") ?? [])).toContain("F-030");
-      const checks = [...listVitest(ROOT), ...[...listings.values()].flat()];
-      expect(checks.length).toBeGreaterThan(400);
-      expect(parityProblems(rows, new Set(checkIds(checks)))).toEqual([]);
+      const desktop = [
+        ...listVitest(ROOT, ROOT, (file) => !isIosCheck(file)),
+        ...[...listings.values()].flat(),
+      ];
+      // The iOS app's unit tests, and its Simulator checks (`pnpm mobile:check`).
+      const ios = [
+        ...listVitest(ROOT, ROOT, isIosCheck),
+        ...listVitest(ROOT, join(ROOT, "apps/mobile/simulator")),
+      ];
+      expect(desktop.length).toBeGreaterThan(400);
+      expect(ios.length).toBeGreaterThan(5);
+      expect(parityProblems(rows, new Set(checkIds(desktop)), new Set(checkIds(ios)))).toEqual([]);
       // No file that names a row skips any of its checks. The guard's own tests are exempt.
       const files = ["e2e", "e2e-updates", "visual", "test", "packages", "apps", "tools"]
         .flatMap((dir) => testFiles(join(ROOT, dir)))
@@ -50,6 +61,37 @@ describe("the parity table", () => {
     },
     LISTING,
   );
+
+  it("walks no generated native project or build output, and no link that a build left dangling", () => {
+    mkdirSync(join(ROOT, "test-results"), { recursive: true });
+    const root = mkdtempSync(join(ROOT, "test-results", "walk-"));
+    try {
+      for (const dir of [
+        "apps/mobile/test",
+        "apps/mobile/ios/Pods/Headers",
+        "apps/mobile/build/x",
+        "apps/desktop/test",
+      ])
+        mkdirSync(join(root, dir), { recursive: true });
+      writeFileSync(join(root, "apps/mobile/test/a.test.ts"), "");
+      writeFileSync(join(root, "apps/desktop/test/b.test.ts"), "");
+      writeFileSync(join(root, "apps/mobile/ios/Pods/c.test.ts"), "");
+      writeFileSync(join(root, "apps/mobile/build/x/d.test.ts"), "");
+      // A link to a file a build has not written yet, as Pods holds while it installs.
+      symlinkSync(join(root, "missing"), join(root, "apps/mobile/ios/Pods/Headers/e.h"));
+      symlinkSync(join(root, "missing"), join(root, "apps/desktop/test/f.test.ts"));
+      expect(
+        testFiles(join(root, "apps"))
+          .map((path) => relative(root, path))
+          .sort(),
+      ).toEqual([
+        join("apps", "desktop", "test", "b.test.ts"),
+        join("apps", "mobile", "test", "a.test.ts"),
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it("reads ids, platforms and statuses from table rows", () => {
     const rows = parseTable(
@@ -137,6 +179,38 @@ describe("the parity table", () => {
     expect(skipProblems("x.test.ts", 'test("no row here", () => { test.skip(true); });')).toEqual(
       [],
     );
+  });
+
+  it("needs a desktop check and an iOS check for a both row that is done, and the platform's own for the rest", () => {
+    const rows = [
+      { id: "F-001", platform: "both", status: "done" },
+      { id: "F-002", platform: "both", status: "done" },
+      { id: "F-003", platform: "both", status: "done" },
+      { id: "F-004", platform: "iOS", status: "done" },
+      { id: "F-005", platform: "iOS", status: "done" },
+      { id: "F-006", platform: "desktop", status: "done" },
+      { id: "F-007", platform: "both", status: "desktop done" },
+    ];
+    const desktop = new Set(["F-001", "F-002", "F-005", "F-007"]);
+    const ios = new Set(["F-001", "F-003", "F-004", "F-006"]);
+    expect(parityProblems(rows, desktop, ios)).toEqual([
+      "F-002: marked done, but no iOS check names it",
+      "F-003: marked done, but no desktop check names it",
+      "F-005: marked done, but no iOS check names it",
+      "F-006: marked done, but no desktop check names it",
+    ]);
+    expect(isIosCheck("/repo/apps/mobile/simulator/pairing.test.ts")).toBe(true);
+    expect(isIosCheck("apps\\mobile\\test\\host.test.ts")).toBe(true);
+    expect(isIosCheck("/repo/apps/desktop/test/a.test.ts")).toBe(false);
+    expect(
+      vitestChecks(
+        JSON.stringify([
+          { name: "F-001: a", file: "/r/apps/mobile/test/a.test.ts" },
+          { name: "F-002: b", file: "/r/packages/core/test/b.test.ts" },
+        ]),
+        isIosCheck,
+      ),
+    ).toEqual([["F-001: a"]]);
   });
 
   it("fails a done row without a check, a check for no row, and an unknown status", () => {

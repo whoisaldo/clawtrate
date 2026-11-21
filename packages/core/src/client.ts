@@ -504,6 +504,13 @@ export type ClientOptions = {
    * never requested, so every write fails at once.
    */
   readOnly?: boolean;
+  /**
+   * Reopen the saved gateway at start (the default). False keeps it, and the
+   * device's pairing, but starts disconnected from it, as after Disconnect,
+   * until the person reconnects: a host whose storage outlived its install
+   * asks before it walks back into a gateway.
+   */
+  resume?: boolean;
 };
 
 /** A file sent with a message, as `chat.send` takes it: base64 content. */
@@ -1043,22 +1050,26 @@ export class ClawtrateClient {
   /** Resume the saved gateway, if any and if allowed, unless the user disconnected from it. */
   async start(): Promise<void> {
     const stops = this.stops;
-    const identity = await this.loadIdentity();
-    this.setConnection({ deviceId: identity.deviceId });
-    // A turn limit the person chose earlier, unless the host was given one.
-    if (this.options.turnLimitMs === undefined) {
-      const saved = Number(await this.host.storage.get(TURN_LIMIT_KEY).catch(() => null));
-      if (validTurnLimit(saved)) this.turnLimitMs = saved * 60_000;
-    }
-    this.store.update((state) => ({ ...state, turnLimitMinutes: this.turnLimitMs / 60_000 }));
-    const settings = await this.savedSettings();
-    if (stops !== this.stops) return;
-    this.settings = settings;
-    if (this.settings?.suspended) {
-      this.setConnection({ status: "disconnected", gatewayUrl: this.settings.url });
-      return;
-    }
-    if (this.settings) await this.open();
+    return this.changeConnection(async () => {
+      if (stops !== this.stops) return;
+      const identity = await this.loadIdentity();
+      if (stops !== this.stops) return;
+      this.setConnection({ deviceId: identity.deviceId });
+      // A turn limit the person chose earlier, unless the host was given one.
+      if (this.options.turnLimitMs === undefined) {
+        const saved = Number(await this.host.storage.get(TURN_LIMIT_KEY).catch(() => null));
+        if (validTurnLimit(saved)) this.turnLimitMs = saved * 60_000;
+      }
+      this.store.update((state) => ({ ...state, turnLimitMinutes: this.turnLimitMs / 60_000 }));
+      const settings = await this.savedSettings();
+      if (stops !== this.stops) return;
+      this.settings = settings;
+      if (this.settings && (this.settings.suspended || this.options.resume === false)) {
+        this.setConnection({ status: "disconnected", gatewayUrl: this.settings.url });
+        return;
+      }
+      if (this.settings) await this.open();
+    });
   }
 
   /** Connect to a gateway. A token is only needed until this device is paired. */

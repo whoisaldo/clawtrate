@@ -9,3 +9,6 @@ assets/brand/generated.json
 docs/research
 docs/parity.md
 docs/design/prototype
+apps/mobile/ios
+apps/mobile/build
+apps/mobile/.expo

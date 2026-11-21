@@ -65,4 +65,4 @@ The fixture mode, `apps/desktop/src/fixture`, feeds the real interface fixed sta
 
 ## What is next
 
-The iOS app will be an Expo app in `apps/mobile` that runs the same `@clawtrate/core`, with the app supplying the WebSocket, storage and signing. It is in review on its own branch and not on `main` yet. [The roadmap](roadmap.md#the-ios-app) describes it.
+The iOS app is an Expo app in `apps/mobile` that runs the same `@clawtrate/core`, with the app supplying the WebSocket, storage and signing. [The iOS app](development/ios.md) says how to build and check it, and [the roadmap](roadmap.md#the-ios-app) what comes next.

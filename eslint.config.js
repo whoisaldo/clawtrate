@@ -18,6 +18,10 @@ export default tseslint.config(
       "docs/design/prototype/**",
       // Git-ignored local working folder; never part of the repository.
       ".orchestrator/**",
+      // The iOS app's native project and build output: `expo prebuild` and `pnpm mobile:build` write them.
+      "apps/mobile/ios/**",
+      "apps/mobile/build/**",
+      "apps/mobile/.expo/**",
     ],
   },
   js.configs.recommended,
@@ -43,6 +47,29 @@ export default tseslint.config(
         { patterns: [{ group: ["node:*"], message: "core is shared; put Node code in src/node" }] },
       ],
       "no-restricted-globals": ["error", "window", "document", "process", "Buffer", "require"],
+    },
+  },
+  {
+    // Metro reads its config as CommonJS.
+    files: ["apps/mobile/metro.config.js"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
+  {
+    // The iOS app: React Native, which has the WHATWG WebSocket and timers as globals.
+    files: ["apps/mobile/src/**/*.{ts,tsx}", "apps/mobile/index.ts"],
+    languageOptions: {
+      globals: {
+        WebSocket: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        console: "readonly",
+      },
+    },
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
     },
   },
   {

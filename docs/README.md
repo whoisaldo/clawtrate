@@ -6,6 +6,7 @@ Every document in the repository, by what you want to do.
 
 - [Developing Clawtrate](development/README.md): setup, the web preview and the desktop app.
 - [The development gateway](development/dev-gateway.md): the gateway with a scripted model that everything is built against, its instances, plugins, scripted accounts and scenarios.
+- [The iOS app](development/ios.md): what building the iOS app needs, the Simulator build and its checks.
 - [Testing](development/testing.md): each check, what CI runs, the fixture mode and the visual tests.
 - [The SSH transport's tests](development/ssh.md): running the tests of "Another computer" over SSH against an `sshd` of their own.
 - [Packaging](development/packaging.md): building the desktop app for macOS and Windows, signing, and the logo and icons.

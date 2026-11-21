@@ -1,0 +1,54 @@
+name: iOS
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ios.yml"
+      - "apps/mobile/**"
+      - "apps/desktop/src/host/runtime.ts"
+      - "packages/core/**"
+      - "packages/ui/src/**"
+      - "plugins/**"
+      - "tools/brand/src/png.ts"
+      - "tools/dev-gateway/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    runs-on: xcode-27
+    timeout-minutes: 90
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      CLAWTRATE_IOS_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-27-0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: npm install --global openclaw@2026.10.6
+      - name: Install Maestro
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/mobile-dev-inc/Maestro/releases/download/cli-2.12.1/maestro.zip \
+            --output maestro.zip
+          echo "54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7  maestro.zip" \
+            | shasum --algorithm 256 --check
+          unzip -q maestro.zip
+          echo "MAESTRO=$RUNNER_TEMP/maestro/bin/maestro" >> "$GITHUB_ENV"
+          echo "JAVA_HOME=$JAVA_HOME_21_arm64" >> "$GITHUB_ENV"
+      - run: pnpm mobile:build
+      - run: pnpm mobile:check --bail=1
