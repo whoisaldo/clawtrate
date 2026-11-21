@@ -253,7 +253,7 @@ export const STATE_SCENES: StateScene[] = [
     query: `scene=main&${OTTO_DISK}`,
     prepare: async (page) => {
       await showList(page);
-      await page.getByRole("button", { name: "Search bots" }).click();
+      await page.keyboard.press("ControlOrMeta+Shift+F");
       await page.getByRole("textbox", { name: "Search bots" }).fill("p");
     },
   },

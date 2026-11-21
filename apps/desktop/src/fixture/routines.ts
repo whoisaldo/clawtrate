@@ -7,7 +7,8 @@
 //   routines=on|empty|error|loading|running|scheduler-off|many|truncated
 //     no routines, a failed read, still loading, Morning digest running now,
 //     the gateway's scheduler off, Morning digest with 27 recorded runs, or
-//     more routines than the client keeps, one of them a bot's it does not hold
+//     more routines than the client keeps, one of them a bot's it does not hold,
+//     and one of Pip's that only Pip's own read or a search finds
 //   routinehold=<id>   a routine's read, runs and conversations wait for releaseRoutineReads()
 //   routinefail=<id>   a routine's read, runs and conversations fail
 //   botomitted=<n>     a bot's own routine read counts n more it did not list
@@ -185,6 +186,20 @@ function nextAt(now: number, tz: string, hour: number, minute = 0): number {
 }
 
 export const DIGEST = "routine-digest";
+
+/** Routines past those the client keeps (`routines=truncated`), found only by their bot's read or a search. */
+export function unkeptRoutines(now: number): Routine[] {
+  return [
+    base({
+      id: "routine-trail",
+      botId: "pip",
+      name: "Trail conditions",
+      schedule: schedule({ expr: "0 18 * * 5", tz: NY }),
+      text: "Check the trail conditions for the weekend.",
+      nextRunAt: nextDay(now, NY, 18, (weekday) => weekday === "Fri"),
+    }),
+  ];
+}
 
 export function fixtureRoutineList(now: number, params: RoutineParams): Routine[] {
   const lastDigest = at(now, NY, now > at(now, NY, 0, 8) ? 0 : -1, 8);
@@ -719,7 +734,10 @@ export function routineCommands(now: number, params: RoutineParams) {
         return Promise.resolve();
       case "readBotRoutines":
         return answer(command.botId, () => ({
-          routines: fixtureRoutineList(now, params).filter((each) => each.botId === command.botId),
+          routines: [
+            ...fixtureRoutineList(now, params),
+            ...(params.state === "truncated" ? unkeptRoutines(now) : []),
+          ].filter((each) => each.botId === command.botId),
           omitted: params.botOmitted ?? 0,
         }));
       case "readRoutineRuns": {

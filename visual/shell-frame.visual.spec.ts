@@ -85,7 +85,7 @@ test.describe("bot search", () => {
     const rows = page.getByTestId("bot");
     await expect(rows).toHaveCount(5);
     // The round search button sits at the top right of the rail.
-    const button = page.getByRole("button", { name: "Search bots" });
+    const button = page.getByRole("button", { name: "Search", exact: true });
     const rail = await box(page, ".rail");
     const at = (await button.boundingBox())!;
     expect(rail.x + rail.width - (at.x + at.width)).toBeLessThanOrEqual(12);
@@ -110,7 +110,7 @@ test.describe("bot search", () => {
     await expect(rows).toHaveCount(5);
     await expect(button).toBeFocused();
     // Enter opens the first match.
-    await page.keyboard.press("Enter");
+    await page.keyboard.press("ControlOrMeta+Shift+F");
     await page.keyboard.type("marl");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Main");

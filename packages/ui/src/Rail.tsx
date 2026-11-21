@@ -70,6 +70,7 @@ import {
   type RunState,
   type SelectionModel,
 } from "./selection.ts";
+import type { SettingsSection } from "./Settings.tsx";
 import { isUnread } from "./unread.ts";
 
 /** The gateway's state in words, for the footer, its menu and its accessible name. */
@@ -499,6 +500,8 @@ export function Rail({
   routinesOpen = false,
   onOpenRoutines,
   onOpenRoutineRun,
+  onOpenPalette,
+  paletteKeys = "⌘K",
 }: {
   bots: Bot[];
   tasksByBot: Record<string, Task[]>;
@@ -518,7 +521,7 @@ export function Rail({
   bubbles: BubbleChoice;
   onBubbles: (choice: BubbleChoice) => void;
   updateEntry: boolean;
-  onOpenSettings: (section?: "updates") => void;
+  onOpenSettings: (section?: SettingsSection) => void;
   /**
    * "New bot" in the "+" menu (visual-language.md section 7, bots.md section
    * 3); absent, with the "+" itself, when the connection may not write.
@@ -537,6 +540,10 @@ export function Rail({
   onOpenRoutines?: () => void;
   /** Open a routine's run that started at `runAt`, or the routine itself (`null`) while it runs. */
   onOpenRoutineRun?: (id: string, runAt: number | null) => void;
+  /** The round search button opens the search palette (search.md §3). */
+  onOpenPalette?: () => void;
+  /** The palette's keys as this platform names them, for the tooltip. */
+  paletteKeys?: string;
 }) {
   const send = useCommand();
   const bridge = useBridge();
@@ -1915,9 +1922,10 @@ export function Rail({
               type="button"
               ref={searchButtonRef}
               className="icon-button"
-              aria-label="Search bots"
-              title="Search bots (⌘⇧F)"
-              onClick={openSearch}
+              aria-label="Search"
+              aria-haspopup="dialog"
+              title={`Search (${paletteKeys})`}
+              onClick={onOpenPalette ?? openSearch}
             >
               <SearchIcon />
             </button>

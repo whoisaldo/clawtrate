@@ -13,6 +13,7 @@ export * from "./attachments.ts";
 export * from "./files.ts";
 export * from "./accounts.ts";
 export * from "./routines.ts";
+export * from "./search.ts";
 export {
   AdminNeededError,
   isActive as isSignInActive,

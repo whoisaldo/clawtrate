@@ -50,6 +50,12 @@ import {
   type RoutineWrite,
   type RunConversation,
 } from "./routines.ts";
+import {
+  MAX_SEARCH_QUERY_CHARS,
+  type FileSearch,
+  type MessageSearch,
+  type RoutineSearch,
+} from "./search.ts";
 import type { MenuRow } from "./composer-menus.ts";
 import type { UsageBusy, UsageReport } from "./usage-engine.ts";
 import {
@@ -321,6 +327,13 @@ export type BridgeCommand =
   | { type: "refreshUsage" }
   /** The routines a budget can be set for, read now. */
   | { type: "listRoutines" }
+  // Search (search.md). Read now, never kept; the query is never logged.
+  /** `sessions.search` across bots, or one bot's with `botId`. */
+  | { type: "searchMessages"; query: string; botId: string | null }
+  /** One page of `cron.list` matching the query. */
+  | { type: "searchRoutines"; query: string; offset: number }
+  /** One bot's file names, through its newest listed task. */
+  | { type: "searchFiles"; query: string; botId: string }
   // Where a bot runs and Machines (controls.md sections 14 and 15). Read now, never kept;
   // writes are read back before they answer, and need admin (or pairing for names and removals).
   | { type: "readPlacement"; botId: string }
@@ -421,49 +434,61 @@ export type BridgeResultFor<C extends BridgeCommand> = C extends { type: "sendMe
                                                                     }
                                                                   ? BudgetRoutine[]
                                                                   : C extends {
-                                                                        type: "readPlacement";
+                                                                        type: "searchMessages";
                                                                       }
-                                                                    ? BotPlacement
+                                                                    ? MessageSearch
                                                                     : C extends {
-                                                                          type: "readMachines";
+                                                                          type: "searchRoutines";
                                                                         }
-                                                                      ? MachinesView
+                                                                      ? RoutineSearch
                                                                       : C extends {
-                                                                            type: "setCommandMachine";
+                                                                            type: "searchFiles";
                                                                           }
-                                                                        ? ConfigSave
+                                                                        ? FileSearch
                                                                         : C extends {
-                                                                              type: "setBotWorkspace";
+                                                                              type: "readPlacement";
                                                                             }
-                                                                          ? {
-                                                                              workspace:
-                                                                                string | null;
-                                                                              asTyped: boolean;
-                                                                            }
+                                                                          ? BotPlacement
                                                                           : C extends {
-                                                                                type: "setMachineDefaults";
+                                                                                type: "readMachines";
                                                                               }
-                                                                            ? ApprovalsFile
+                                                                            ? MachinesView
                                                                             : C extends {
-                                                                                  type: "refreshCheckIns";
-                                                                                  botId: string;
+                                                                                  type: "setCommandMachine";
                                                                                 }
-                                                                              ? CheckInRead | null
+                                                                              ? ConfigSave
                                                                               : C extends {
-                                                                                    type: "listMemory";
+                                                                                    type: "setBotWorkspace";
                                                                                   }
-                                                                                ? MemoryList
+                                                                                ? {
+                                                                                    workspace:
+                                                                                      string | null;
+                                                                                    asTyped: boolean;
+                                                                                  }
                                                                                 : C extends {
-                                                                                      type: "readMemory";
+                                                                                      type: "setMachineDefaults";
                                                                                     }
-                                                                                  ? MemoryDocument
+                                                                                  ? ApprovalsFile
                                                                                   : C extends {
-                                                                                        type:
-                                                                                          | "checkRoutineCreate"
-                                                                                          | "checkRoutineUpdate";
+                                                                                        type: "refreshCheckIns";
+                                                                                        botId: string;
                                                                                       }
-                                                                                    ? RoutineSaveCheck
-                                                                                    : void;
+                                                                                    ? CheckInRead | null
+                                                                                    : C extends {
+                                                                                          type: "listMemory";
+                                                                                        }
+                                                                                      ? MemoryList
+                                                                                      : C extends {
+                                                                                            type: "readMemory";
+                                                                                          }
+                                                                                        ? MemoryDocument
+                                                                                        : C extends {
+                                                                                              type:
+                                                                                                | "checkRoutineCreate"
+                                                                                                | "checkRoutineUpdate";
+                                                                                            }
+                                                                                          ? RoutineSaveCheck
+                                                                                          : void;
 
 export type HostInfo = {
   kind: "desktop" | "web";
@@ -733,6 +758,18 @@ function providerId(value: unknown): string {
 
 function profileId(value: unknown): string {
   if (typeof value !== "string" || !PROFILE_PATTERN.test(value)) throw new Error("invalid account");
+  return value;
+}
+
+/** A search's text: trimmed, not empty, within the gateway's limit. Never part of an error. */
+function searchQuery(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    value.length > MAX_SEARCH_QUERY_CHARS ||
+    value.trim() !== value ||
+    value.length === 0
+  )
+    throw new Error("invalid search");
   return value;
 }
 
@@ -1327,6 +1364,24 @@ export function parseBridgeCommand(value: unknown): BridgeCommand {
     case "refreshUsage":
     case "listRoutines":
       return { type: command.type };
+    case "searchMessages":
+      return {
+        type: "searchMessages",
+        query: searchQuery(command.query),
+        botId: command.botId === null ? null : botId(command.botId),
+      };
+    case "searchRoutines":
+      return {
+        type: "searchRoutines",
+        query: searchQuery(command.query),
+        offset: count(command.offset, 1_000_000, "offset"),
+      };
+    case "searchFiles":
+      return {
+        type: "searchFiles",
+        query: searchQuery(command.query),
+        botId: botId(command.botId),
+      };
     case "readPlacement":
       return { type: "readPlacement", botId: botId(command.botId) };
     case "readMachines":
@@ -1799,6 +1854,12 @@ class ViewerSession implements BridgeSession {
         return client.refreshUsage();
       case "listRoutines":
         return client.listRoutines();
+      case "searchMessages":
+        return client.searchMessages(command.query, command.botId);
+      case "searchRoutines":
+        return client.searchRoutines(command.query, command.offset);
+      case "searchFiles":
+        return client.searchFiles(command.query, command.botId);
       case "readPlacement":
         return client.readPlacement(command.botId);
       case "readMachines":

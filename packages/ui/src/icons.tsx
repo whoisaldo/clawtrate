@@ -273,3 +273,9 @@ export const ReplyIcon = (props: IconProps) => (
     <path d="M3.5 7.5h5.75A3.75 3.75 0 0 1 13 11.25V12.5" />
   </Icon>
 );
+
+export const LinkIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M6.75 9.25a2.75 2.75 0 0 0 3.9 0l2-2a2.75 2.75 0 0 0-3.9-3.9l-.75.75M9.25 6.75a2.75 2.75 0 0 0-3.9 0l-2 2a2.75 2.75 0 0 0 3.9 3.9l.75-.75" />
+  </Icon>
+);

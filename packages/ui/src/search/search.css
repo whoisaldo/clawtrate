@@ -1,0 +1,424 @@
+/* Search (docs/design/search.md): the palette, its groups and rows, and the
+   ring on an opened message. No new token. */
+
+.search-layer {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  overflow: hidden;
+}
+.search-layer::backdrop {
+  background: transparent;
+}
+
+.s-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-scrim);
+  animation: s-fade var(--dur-quick) var(--ease-out);
+}
+@keyframes s-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Centred, 72 px from the top, 640 px or the window less 48. */
+.s-palette {
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  translate: -50% 0;
+  width: min(640px, calc(100% - 48px));
+  max-height: calc(100% - 144px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: s-in var(--dur-quick) var(--ease-out);
+}
+@keyframes s-in {
+  from {
+    opacity: 0;
+    translate: -50% 4px;
+  }
+}
+:root[data-motion="reduce"] :is(.s-palette, .s-scrim) {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.s-palette, .s-scrim) {
+    animation: none;
+  }
+}
+
+.s-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 16px;
+}
+.s-glass {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+.s-field {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  padding: 14px 0;
+}
+.s-field::placeholder {
+  color: var(--text-faint);
+}
+.s-field:focus {
+  outline: none;
+}
+.s-palette:focus-within .s-top {
+  box-shadow: inset 0 -2px 0 var(--accent-line);
+}
+.s-cancel {
+  display: none;
+}
+
+.s-body {
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+  min-height: 0;
+}
+
+.s-foot {
+  margin: 0;
+  padding: 9px 16px 10px;
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  color: var(--text-faint);
+}
+
+/* Before anything is typed, and what found nothing: what each source covers. */
+.s-idle,
+.s-nomatch {
+  padding: 8px 8px 4px;
+}
+.s-idle h2 {
+  margin: 0;
+}
+:is(.s-idle, .s-nomatch) dl {
+  margin: 8px 0 0;
+  display: grid;
+  gap: 8px;
+}
+:is(.s-idle, .s-nomatch) dl > div {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 12px;
+}
+:is(.s-idle, .s-nomatch) dt {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text);
+}
+:is(.s-idle, .s-nomatch) dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.s-nomatch {
+  margin-top: 6px;
+}
+
+/* A group: its name and count, and the coverage line under it. */
+.s-group + .s-group {
+  margin-top: 6px;
+}
+.s-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px 6px;
+}
+.s-group-name {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+.s-group-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.s-line,
+.s-sub-line {
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--text-faint);
+}
+.s-group[data-tone="danger"] .s-group-lines {
+  align-self: start;
+  margin-top: 2px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+}
+.s-group[data-tone="danger"] .s-line {
+  color: var(--text);
+}
+.s-sub {
+  padding: 8px 8px 4px;
+}
+.s-sub[data-tone="danger"] .s-sub-line {
+  color: var(--danger);
+}
+
+.s-skeleton {
+  display: grid;
+  gap: 8px;
+  padding: 4px 8px 8px;
+}
+.s-skeleton span {
+  height: 14px;
+  border-radius: 7px;
+  background: var(--bg-bubble);
+}
+.s-skeleton span:first-child {
+  width: 62%;
+}
+.s-skeleton span:last-child {
+  width: 40%;
+}
+
+/* A row: 44 px for one line, 60 for two; the active one takes the selected fill. */
+.s-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+.s-row[aria-selected="true"] {
+  background: var(--bg-selected);
+}
+.s-lead {
+  flex: none;
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+}
+.s-lead .avatar {
+  width: 24px;
+  height: 24px;
+}
+.s-icon {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+.s-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.s-first {
+  font-size: var(--text-md);
+  line-height: 20px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s-time {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.s-second {
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s-clamp {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Matched characters: weight, not colour. */
+.s-row b {
+  font-weight: var(--weight-medium);
+  color: var(--text);
+}
+.s-row[data-kind] .s-first {
+  color: var(--text);
+}
+.s-row:not([data-kind="action"]) .s-first:has(b) {
+  color: var(--text-muted);
+}
+.s-note {
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  color: var(--text);
+}
+.s-note[data-tone="danger"] {
+  color: var(--danger);
+}
+.s-hint {
+  flex: none;
+  display: none;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.s-row[aria-selected="true"] .s-hint {
+  display: inline;
+}
+/* A link's full canonical address, on a line that breaks anywhere; at most two lines. */
+.s-address {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  max-height: 36px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  overflow: hidden;
+}
+.s-address[data-refused] {
+  font-family: inherit;
+  font-size: var(--text-sm);
+}
+.s-action {
+  min-height: 36px;
+  padding-left: 46px;
+}
+.s-action .s-first {
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+}
+
+.turn[data-search-focus]:focus {
+  outline: none;
+}
+
+/* An opened message: a 2 px ring that fades after 2 seconds; with reduced
+   motion it stays until the next scroll or key. */
+.bubble.search-hit {
+  outline: 2px solid var(--accent-line);
+  outline-offset: 2px;
+  animation: s-hit 2.4s linear forwards;
+}
+@keyframes s-hit {
+  0%,
+  83% {
+    outline-color: var(--accent-line);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+:root[data-motion="reduce"] .bubble.search-hit {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bubble.search-hit {
+    animation: none;
+  }
+}
+
+/* Below 688 px: search is a full screen, with Cancel. */
+@container app (max-width: 687px) {
+  .s-scrim {
+    display: none;
+  }
+  .s-palette {
+    inset: 0;
+    top: 0;
+    left: 0;
+    translate: none;
+    width: 100%;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--bg);
+    animation: none;
+  }
+  .s-top {
+    position: relative;
+    padding: 12px 12px 10px;
+    gap: 8px;
+  }
+  .s-glass {
+    position: absolute;
+    left: 26px;
+  }
+  .s-field {
+    min-height: 44px;
+    padding: 0 16px 0 40px;
+    border-radius: var(--radius-pill);
+    background: var(--bg-bubble);
+    font-size: 17px;
+  }
+  .s-palette:focus-within .s-top {
+    box-shadow: none;
+  }
+  .s-field:focus-visible {
+    outline: 2px solid var(--accent-line);
+    outline-offset: 2px;
+  }
+  .s-cancel {
+    display: inline-flex;
+  }
+  .s-foot {
+    display: none;
+  }
+  .s-body {
+    flex: 1;
+    padding: 0 8px 16px;
+  }
+  .s-row {
+    min-height: 56px;
+  }
+  .s-lead,
+  .s-lead .avatar {
+    width: 32px;
+    height: 32px;
+  }
+  .s-first {
+    font-size: 17px;
+    line-height: 22px;
+  }
+  .s-hint {
+    display: none !important;
+  }
+  .s-action {
+    min-height: 44px;
+    padding-left: 54px;
+  }
+  :is(.s-idle, .s-nomatch) dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

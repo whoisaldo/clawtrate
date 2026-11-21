@@ -38,7 +38,7 @@ test("F-012 F-054: on a writing connection a round + sits at the top right besid
 }) => {
   await openFixture(page, `scene=rail-write&${OTTO}`, "light");
   const top = page.locator(".rail-top");
-  const search = top.getByRole("button", { name: "Search bots" });
+  const search = top.getByRole("button", { name: "Search", exact: true });
   const plus = top.getByRole("button", { name: "New", exact: true });
   await expect(plus).toBeVisible();
   // Top right, after search, round.

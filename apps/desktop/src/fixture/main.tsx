@@ -16,6 +16,7 @@
 //   &checkins=off, &scheduler=off, &cisave=fail …    check-ins (check-ins.ts)
 //   &routines=running, &routines=many …            routines (routines.ts)
 //   &usage=…, &budget=…, &plimit=…, &uview=usage     usage and budgets (usage.ts)
+//   &search=on, &src=…, &routinepage=3 …            search (search.ts)
 
 import { App, BridgeProvider, requestUsagePage, rosterKey, rosterScope } from "@clawtrate/ui";
 import { StrictMode } from "react";
@@ -30,6 +31,7 @@ import { releaseRoutineReads, routineParams } from "./routines.ts";
 import { usageParams } from "./usage.ts";
 import { fixtureUpdates } from "./updates.ts";
 import { machineParams } from "./machines.ts";
+import { searchParams } from "./search.ts";
 
 const params = new URLSearchParams(location.search);
 
@@ -89,6 +91,7 @@ const bridge = createFixtureBridge(isScene(sceneName) ? sceneName : "main", {
   routines: routineParams(params),
   usage: usageParams(params),
   machines: machineParams(params),
+  search: searchParams(params),
 });
 if (params.has("hold")) bridge.hold();
 // Otto's Usage page in the Work pane's Settings tab, with the budget form open for `budget=invalid`.

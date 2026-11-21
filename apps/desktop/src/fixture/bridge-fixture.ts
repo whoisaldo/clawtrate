@@ -64,6 +64,7 @@ import { ACTION_SCENES, actionScene, isActionScene } from "./actions.ts";
 import { checkInCommands, fixtureCheckIns, type CheckInParams } from "./check-ins.ts";
 import { memoryCommands } from "./memory.ts";
 import { fixtureUsage, NO_USAGE_PARAMS, usageCommand, type UsageParams } from "./usage.ts";
+import { NO_SEARCH_PARAMS, searchCommands, withMessageIds, type SearchParams } from "./search.ts";
 
 export const FIXTURE_INFO: HostInfo = {
   kind: "web",
@@ -483,6 +484,7 @@ export function createFixtureBridge(
     usage?: UsageParams;
     machines?: MachineParams;
     checkIns?: CheckInParams;
+    search?: SearchParams;
   } = {},
 ): ClawtrateBridge & {
   setState(change: (state: ClawtrateState) => ClawtrateState): void;
@@ -541,6 +543,10 @@ export function createFixtureBridge(
   // And the usage the gateway reports, with this person's budgets.
   const usageParams = options.usage ?? NO_USAGE_PARAMS;
   if (state.bots.length > 0) state = { ...state, usage: fixtureUsage(now, usageParams) };
+  const search = options.search ?? NO_SEARCH_PARAMS;
+  if (search.ids) state = { ...state, transcripts: withMessageIds(state.transcripts) };
+  // The histories a dropped or failed transcript is read again from; pairing loads its own.
+  let histories = state.transcripts;
   const listeners = new Set<(state: ClawtrateState) => void>();
   const set = (next: ClawtrateState) => {
     state = next;
@@ -561,6 +567,7 @@ export function createFixtureBridge(
   const decisions: DecisionMode = isCardScene(name) ? cardScene(name, now).decisions : "apply";
   const timers = holdableTimers();
   const { deferred } = timers;
+  const searchCommand = searchCommands(search, deferred);
   const later = (ms: number, change: (state: ClawtrateState) => ClawtrateState) =>
     deferred(() => set(change(state)), ms);
   const approval = (key: string, id: string): ApprovalCard | undefined =>
@@ -577,6 +584,11 @@ export function createFixtureBridge(
   const routineCommand = routineCommands(now, routineParams);
   let latestAccessRequest = 0;
   async function apply(command: BridgeCommand): Promise<unknown> {
+    const searched = searchCommand(command, () => state);
+    if (searched) {
+      sent.push(command);
+      return searched;
+    }
     const checkIn = checkInCommand(command, () => state, set);
     if (checkIn) {
       sent.push(command);
@@ -653,7 +665,14 @@ export function createFixtureBridge(
           await new Promise((resolve) => setTimeout(resolve, 500));
           pairingChecks += 1;
           if (pairingChecks === 1) set(withConnection(state, { retryAt: Date.now() + 5000 }));
-          else set(loaded(Date.now()));
+          else {
+            const loadedNow = loaded(Date.now());
+            const next = search.ids
+              ? { ...loadedNow, transcripts: withMessageIds(loadedNow.transcripts) }
+              : loadedNow;
+            histories = next.transcripts;
+            set(next);
+          }
           return;
         }
         if (status === "connected" && state.discovery.status !== "error") return;
@@ -685,8 +704,26 @@ export function createFixtureBridge(
         setTimeout(() => set(caughtUp(state)), 700);
         return;
       }
-      case "openSession":
+      case "openSession": {
+        // A history the state no longer holds, or that failed since, is read again: loading at
+        // once, as the engine shows it, then loaded as a delayed answer a test can hold.
+        const { key } = command;
+        const history = histories[key];
+        const current = state.transcripts[key];
+        if (!history || history === current || (current && current.status !== "error")) return;
+        const reading = { ...history, status: "loading" as const, error: null };
+        set({ ...state, transcripts: { ...state.transcripts, [key]: reading } });
+        // Only onto the read it answers: a disconnect or a replacement since has the last word.
+        later(120, (now) =>
+          now.transcripts[key] === reading
+            ? { ...now, transcripts: { ...now.transcripts, [key]: history } }
+            : now,
+        );
+        return;
+      }
       case "closeSession":
+        // Answered as a delayed answer, so a test can hold a close while the page moves on.
+        return new Promise<void>((resolve) => deferred(resolve, 0));
       case "requestAccess":
         return;
       case "resolveApproval": {
