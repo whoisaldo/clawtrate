@@ -24,6 +24,7 @@ import {
 import {
   devConfig,
   lockOrder,
+  LOOPBACK_PROXIES,
   main,
   openInstance,
   PLUGIN_RULE,
@@ -283,6 +284,96 @@ describe("local pairing at the gateway's default", () => {
       ['{"accounts":true,"defaultLocalPairing":true}', true],
       ['{"defaultLocalPairing":"yes"}', false],
       ['{"defaultLocalPairing":true,"autoApproveLocal":true}', false],
+    ] as const) {
+      rmSync(join(runDir, "start-options.json"), { force: true });
+      writeFileSync(join(runDir, "start-options.json"), text);
+      if (ok) expect(recordedStartOptions({ runDir })).toEqual(JSON.parse(text));
+      else expect(() => recordedStartOptions({ runDir })).toThrow(/not a record of start options/);
+    }
+  });
+});
+
+describe("a trusted loopback proxy", () => {
+  const TRUSTING = { trustLoopbackProxy: true } as const;
+  const config = () => devConfig("token", PORTS, STATE, [], TRUSTING);
+  type Gateway = { gateway: Record<string, unknown> };
+
+  it("sets trustedProxies to loopback, and only that", () => {
+    const plain = devConfig("token", PORTS, STATE) as unknown as Gateway;
+    const trusting = config() as unknown as Gateway;
+    expect(plain.gateway.trustedProxies).toBeUndefined();
+    expect(trusting.gateway.trustedProxies).toEqual(["127.0.0.1", "::1"]);
+    expect(LOOPBACK_PROXIES).toEqual(["127.0.0.1", "::1"]);
+    const { trustedProxies: _trusted, ...rest } = trusting.gateway;
+    expect(rest).toEqual(plain.gateway);
+    expect({ ...plain, gateway: undefined }).toEqual({ ...trusting, gateway: undefined });
+  });
+
+  it("keeps explicit pairing unless local pairing is also left at the default", () => {
+    const both = devConfig("token", PORTS, STATE, [], {
+      trustLoopbackProxy: true,
+      defaultLocalPairing: true,
+    }) as unknown as Gateway;
+    expect((config() as unknown as Gateway).gateway.nodes).toEqual({
+      pairing: { autoApproveLocal: false },
+    });
+    expect(both.gateway.nodes).toBeUndefined();
+    expect(both.gateway.trustedProxies).toEqual(["127.0.0.1", "::1"]);
+  });
+
+  it("is kept by the contract in both directions", () => {
+    expect(sandboxProblems(config(), PORTS, STATE, [], TRUSTING)).toEqual([]);
+    expect(sandboxProblems(config(), PORTS, STATE)).toEqual([
+      "gateway.trustedProxies is not allowed",
+    ]);
+    expect(sandboxProblems(devConfig("token", PORTS, STATE), PORTS, STATE, [], TRUSTING)).toEqual([
+      "gateway.trustedProxies is required",
+    ]);
+    for (const wider of [
+      ["0.0.0.0/0"],
+      ["127.0.0.0/8", "::1"],
+      ["127.0.0.1"],
+      ["127.0.0.1", "::1", "198.51.100.0/24"],
+      ["::1", "127.0.0.1"],
+    ]) {
+      const changed = config() as unknown as Gateway;
+      changed.gateway.trustedProxies = wider;
+      expect(sandboxProblems(changed, PORTS, STATE, [], TRUSTING)).toEqual([
+        `gateway.trustedProxies must be exactly ["127.0.0.1","::1"], found ${JSON.stringify(wider)}`,
+      ]);
+    }
+    const fallback = config() as unknown as Gateway;
+    fallback.gateway.allowRealIpFallback = true;
+    expect(sandboxProblems(fallback, PORTS, STATE, [], TRUSTING)).toEqual([
+      "gateway.allowRealIpFallback is not allowed",
+    ]);
+  });
+
+  it("is refused on the default instance before anything is touched", async () => {
+    const home = temp();
+    await expect(
+      start(openInstance(null, { home, runRoot: join(home, "run") }), TRUSTING),
+    ).rejects.toThrow(/default instance never trusts a proxy/);
+    expect(readdirSync(home)).toEqual([]);
+  });
+
+  it("is refused by every command but start and up", async () => {
+    for (const command of ["status", "stop", "seed", "reset", "approve"]) {
+      await expect(
+        main([command, "--instance", "probe", "--trust-loopback-proxy"], {}),
+      ).rejects.toThrow(`--trust-loopback-proxy is a start option; ${command} does not take it`);
+    }
+  });
+
+  it("is read back from the record of start options", () => {
+    const runDir = temp();
+    for (const [text, ok] of [
+      ['{"trustLoopbackProxy":true}', true],
+      ['{"defaultLocalPairing":true,"trustLoopbackProxy":true}', true],
+      ['{"accounts":true,"defaultLocalPairing":true,"trustLoopbackProxy":true}', true],
+      ['{"trustLoopbackProxy":"yes"}', false],
+      ['{"trustLoopbackProxy":["127.0.0.1"]}', false],
+      ['{"trustLoopbackProxy":true,"trustedProxies":["0.0.0.0/0"]}', false],
     ] as const) {
       rmSync(join(runDir, "start-options.json"), { force: true });
       writeFileSync(join(runDir, "start-options.json"), text);

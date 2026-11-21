@@ -81,6 +81,14 @@ pnpm dev-gateway start --instance pairing --default-local-pairing
 
 Every instance sets `gateway.nodes.pairing.autoApproveLocal` to `false`, so a device's first pairing waits for approval even on loopback. `--default-local-pairing` leaves that one setting out of a named instance's config, at the gateway's own default, for research into what a first pairing on the gateway's own computer does when nobody has changed it ([`docs/research/setup-flow.md`](../research/setup-flow.md)). The contract follows: such an instance refuses the setting, and an ordinary instance still requires it. The default instance refuses the option.
 
+## A trusted loopback proxy
+
+```bash
+pnpm dev-gateway start --instance relay --default-local-pairing --trust-loopback-proxy
+```
+
+`--trust-loopback-proxy` sets `gateway.trustedProxies` to `["127.0.0.1", "::1"]` on a named instance, so a loopback connection that carries `X-Forwarded-For` counts as one through a trusted proxy, which is remote, instead of being refused. It is for research into a relay connector on the gateway's computer ([`docs/research/relay.md`](../research/relay.md)). A connection with no forwarded headers is still local. The contract follows: such an instance requires exactly those two addresses, and any other instance refuses the key. The default instance refuses the option. Add `--default-local-pairing` to compare with a silent local pairing.
+
 ## A paired machine
 
 ```bash
