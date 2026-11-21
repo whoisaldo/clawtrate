@@ -551,8 +551,8 @@
     `<li><span class="s-row-text"><span class="s-row-title">Reached through</span><span class="s-row-sub">you@devbox.example over SSH · In use</span></span></li>` +
     `<li><span class="s-row-text"><span class="s-row-title">Private access with Tailscale</span><span class="s-row-sub">Set up private access on the gateway using OpenClaw's Tailscale instructions</span></span>` +
     `<a class="button" data-size="sm" href="https://docs.openclaw.ai/gateway/tailscale" target="_blank" rel="noreferrer noopener">OpenClaw's Tailscale instructions</a></li>` +
-    `<li><span class="s-row-text"><span class="s-row-title">Connect a phone</span><span class="s-row-sub">Not in this version</span></span>` +
-    `<a class="button" data-size="sm" href="${go("phone")}">Connect a phone</a></li>` +
+    `<li><span class="s-row-text"><span class="s-row-title">Remote access</span><span class="s-row-sub">Off. Reach this gateway from your iPhone anywhere, through Clawtrate's relay.</span></span>` +
+    `<a class="button" data-size="sm" href="remote.html${display() ? `${display()}&` : "?"}screen=intro">Connect a phone…</a></li>` +
     `<li><button type="button" class="button" data-variant="quiet" data-size="sm" data-host="removeRoute">Remove this gateway…</button></li>` +
     `</ul>`;
 
@@ -569,18 +569,6 @@
       mockApp(
         `<div class="status-strip" data-tone="danger" role="status" data-s-title tabindex="-1"><span class="status-dot"></span>` +
           `<span class="status-strip-text"><b>This address now leads to a different gateway</b><span>· disconnected</span></span><a class="s-strip-link" href="${go("there")}">Review</a></div>`,
-      ),
-    phone: () =>
-      mockApp() +
-      dialog(
-        "",
-        "Connect a phone",
-        note("", "Clawtrate doesn't make codes for phones yet.", "") +
-          `<p class="s-hint" style="text-align:left">A phone needs an encrypted address it can reach. Set one up with OpenClaw's network-exposure instructions.</p>` +
-          `<p class="s-links"><a class="button" data-size="sm" href="https://docs.openclaw.ai/gateway/security/network-exposure" target="_blank" rel="noreferrer noopener">OpenClaw's network-exposure instructions</a></p>` +
-          `<p class="s-hint" style="text-align:left">On the iPhone, scan or paste a setup code, then approve the phone on the gateway's computer. A setup code stays valid until it is used or expires, even after you close where it was shown.</p>`,
-        "",
-        "settings",
       ),
     settings: () => settings(gatewayRows()),
   };
@@ -616,8 +604,9 @@
     iphone: () =>
       brand() +
       `<h2 class="s-title s-question" tabindex="-1" data-s-title>Connect to your OpenClaw</h2>` +
-      actions(button("Scan a setup code", { variant: "primary", to: "iphone-review" }), button("Paste a setup code", { to: "iphone-review" })) +
-      hint("Get a setup code from the gateway's owner, made on the gateway's computer.") +
+      actions(button("Scan a code", { variant: "primary", to: "iphone-review" }), button("Paste a code", { to: "iphone-review" })) +
+      hint("Get a code from Clawtrate on your computer: Settings, Gateway, Connect a phone. A setup code from the gateway's owner works too.") +
+      `<p class="s-proto-hint">Prototype: these lead to a setup code's screens. A code from Connect a phone leads to <a href="remote.html${display()}">the relay's screens</a>.</p>` +
       `<p class="s-links"><a class="button" data-variant="quiet" data-size="sm" href="connect.html?width=phone">Advanced</a></p>`,
 
     "iphone-review": () =>

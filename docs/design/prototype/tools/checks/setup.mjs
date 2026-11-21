@@ -173,7 +173,7 @@ await walk(
   "the iPhone: review the address, then wait for approval",
   "iphone",
   [
-    [link("Scan a setup code"), "iphone-review"],
+    [link("Scan a code"), "iphone-review"],
     [link("Connect"), "iphone-waiting"],
   ],
 );
@@ -209,11 +209,10 @@ const WORDS = {
   approve: ["Waiting for the gateway's owner.", "On devbox, approve this request for the default profile:", "openclaw devices approve e5eb4aa8-175f-40f1-bc7a-8f15cfc40942", "Request e5eb4aa8", "Check now", "Cancel request"],
   restoring: ["Restoring the connection to devbox", "· showing saved messages", "Retry now"],
   "route-changed": ["This address now leads to a different gateway", "Review"],
-  phone: ["Connect a phone", "Clawtrate doesn't make codes for phones yet.", "A phone needs an encrypted address it can reach. Set one up with OpenClaw's network-exposure instructions.", "OpenClaw's network-exposure instructions", "A setup code stays valid until it is used or expires, even after you close where it was shown."],
-  settings: ["Gateway · devbox", "you@devbox.example over SSH · In use", "Private access with Tailscale", "Set up private access on the gateway using OpenClaw's Tailscale instructions", "OpenClaw's Tailscale instructions", "Connect a phone", "Remove this gateway…"],
+  settings: ["Gateway · devbox", "you@devbox.example over SSH · In use", "Private access with Tailscale", "Set up private access on the gateway using OpenClaw's Tailscale instructions", "OpenClaw's Tailscale instructions", "Remote access", "Connect a phone…", "Remove this gateway…"],
   code: ["Use a setup code", "Setup code"],
   "code-pairing": ["Approve this device", "gateway.example has not seen this device before.", "with --profile <name> if the gateway doesn't use the default profile", "openclaw devices approve", "Read bots, tasks and conversations", "connecting to gateway.example"],
-  iphone: ["Connect to your OpenClaw", "Scan a setup code", "Paste a setup code", "Get a setup code from the gateway's owner, made on the gateway's computer.", "Advanced"],
+  iphone: ["Connect to your OpenClaw", "Scan a code", "Paste a code", "Get a code from Clawtrate on your computer: Settings, Gateway, Connect a phone. A setup code from the gateway's owner works too.", "Advanced"],
   "iphone-review": ["Connect to devbox?", "This code leads to devbox.tailnet.example, over an encrypted connection.", "Expires at 20:41 (in 9 minutes)", "Connect", "Cancel"],
   "iphone-waiting": ["Waiting for approval", "Connecting to devbox.tailnet.example", "Ask the gateway's owner to approve this iPhone. Its device code is:", "7C41-D2E0", "with --profile <name> if the gateway doesn't use the default profile", "Waiting for approval, checking again in 4s"],
   "iphone-done": ["Future example: this state needs a step that isn't proven yet.", "Connected, read-only"],
@@ -309,7 +308,7 @@ await offers("screen=install-failed", "a failed install: no Try again in this ve
 await offers("screen=install-failed", "a failed step is drawn failed and the later ones wait", () => [...document.querySelectorAll(".s-steps li")].map((li) => li.dataset.state).join(",") === "done,failed,waiting,waiting");
 await offers("screen=settings", "settings: Tailscale is read-only, with OpenClaw's instructions; no switch", () => !document.querySelector('[role="switch"]') && [...document.querySelectorAll("a")].some((a) => a.href === "https://docs.openclaw.ai/gateway/tailscale"));
 await offers("screen=settings", "settings: no removal of OpenClaw in this version", () => !/Remove OpenClaw/.test(document.getElementById("root").textContent));
-await offers("screen=phone", "phone: no code made or shown, a link to OpenClaw's network-exposure instructions", () => !document.querySelector("[data-host]") && !document.querySelector("code") && [...document.querySelectorAll("a")].some((a) => a.href === "https://docs.openclaw.ai/gateway/security/network-exposure"));
+await offers("screen=settings", "settings: Connect a phone leads to the remote access page", () => [...document.querySelectorAll("a")].some((a) => a.getAttribute("href")?.startsWith("remote.html") && a.getAttribute("href").includes("screen=intro")));
 await offers("screen=iphone-waiting", "iPhone waiting: no simulated approval", () => !document.querySelector("[data-simulate]") && !document.querySelector('a[href*="iphone-done"]'));
 await offers("screen=code-pairing&addr=gateway.example", "pasted code pending: no simulated approval, the address named", () => !document.querySelector("[data-simulate]") && document.body.textContent.includes("gateway.example has not seen this device before."));
 
@@ -403,7 +402,7 @@ await p.close();
 
 // Part 7: widths, themes, motion -----------------------------------------------------------------
 for (const [label, width] of [["1100", 1100], ["800", 800], ["phone", 390]]) {
-  for (const screen of ["first", "found", "hostkey", "hostkey-changed", "install-confirm", "installing", "approve", "settings", "phone", "code-pairing"]) {
+  for (const screen of ["first", "found", "hostkey", "hostkey-changed", "install-confirm", "installing", "approve", "settings", "code-pairing"]) {
     p = await open(`screen=${screen}&width=${label === "phone" ? "phone" : "full"}`, { width, height: 844 });
     check(`${screen} at ${label}: no sideways scroll`, await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await p.close();

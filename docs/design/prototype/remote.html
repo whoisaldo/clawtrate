@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clawtrate prototype: remote access</title>
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="css/conversation.css" />
+    <link rel="stylesheet" href="css/bots.css" />
+    <link rel="stylesheet" href="css/setup.css" />
+    <link rel="stylesheet" href="css/remote.css" />
+    <link rel="stylesheet" href="css/prototype.css" />
+    <!-- Optional and not in the repository: local @font-face rules. See README.md. -->
+    <link rel="stylesheet" href="fonts.local.css" />
+    <script src="js/icons.js"></script>
+    <script src="js/prototype.js"></script>
+    <script src="js/remote.js" defer></script>
+  </head>
+  <body>
+    <header class="proto-bar" id="proto-bar"></header>
+    <main class="proto-stage">
+      <div class="proto-frame">
+        <div class="app" id="root">
+          <main class="connect setup" id="setup-root">
+            <div class="connect-drag"></div>
+            <div class="connect-card" id="setup-card"></div>
+            <div class="ensemble" aria-hidden="true">
+              <span class="avatar" data-bot="extra3" style="--size: 132px; --sink: -0.3; --tilt: -8deg"></span>
+              <span class="avatar" data-bot="marlow" style="--size: 176px; --sink: -0.26; --tilt: 5deg"></span>
+              <span class="avatar" data-bot="extra1" style="--size: 118px; --sink: -0.2; --tilt: -4deg"></span>
+              <span class="avatar" data-bot="otto" style="--size: 204px; --sink: -0.3; --tilt: 3deg"></span>
+              <span class="avatar" data-bot="juniper" style="--size: 160px; --sink: -0.24; --tilt: -6deg"></span>
+              <span class="avatar" data-bot="extra2" style="--size: 124px; --sink: -0.26; --tilt: 7deg"></span>
+              <span class="avatar" data-bot="pip" style="--size: 186px; --sink: -0.28; --tilt: -3deg"></span>
+              <span class="avatar" data-bot="extra4" style="--size: 122px; --sink: -0.24; --tilt: 4deg"></span>
+            </div>
+          </main>
+          <p class="visually-hidden" id="setup-live" aria-live="polite"></p>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

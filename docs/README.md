@@ -35,6 +35,7 @@ Every document in the repository, by what you want to do.
 - [Bots](design/bots.md): creating a bot on an account, connecting accounts, a bot's settings and the optional T3 Code integration.
 - [Controls](design/controls.md): what each bot may do and who enforces it, saved approvals, activity, memory, where a bot runs, usage and warning budgets.
 - [Setting up](design/setup.md): the first run, where OpenClaw runs and what Clawtrate found there, connecting on this computer or over SSH, installing OpenClaw, setup codes and approvals.
+- [Remote access](design/remote-access.md): reaching the gateway from an iPhone through Clawtrate's relay, Connect a phone, approving the phone, the Remote access row and the iPhone's screens.
 - [Search](design/search.md): the Cmd/Ctrl+K palette, what each source covers, opening a result in its place, and the iPhone's scopes.
 - [Prototype](design/prototype/README.md): static pages that show the design working.
 
@@ -45,6 +46,8 @@ Every document in the repository, by what you want to do.
 - [Provider accounts and T3 Code](research/provider-accounts-and-t3-code.md): how OpenClaw handles provider accounts, and how a bot can work with T3 Code.
 - [The setup flow](research/setup-flow.md): first pairing, setup codes, the gateway's identity, installing and removing OpenClaw, SSH from a shipped app, and Tailscale, from OpenClaw's source and live runs.
 - `research/setup-flow/`: the probe behind the setup flow note.
+- [Pairing a phone through the relay](research/relay-pairing.md): what the gateway, the relay connector and the phone do when a phone pairs through Clawtrate's relay, from OpenClaw's source and a development instance.
+- `research/relay-pairing/`: the probe behind the relay pairing note.
 - [Search](research/search.md): what the gateway's message search matches, its order and limits, what a narrower search finds, its cost, and the file and routine lists, from OpenClaw's source and a development instance.
 - `research/search/`: the probe behind the search note.
 - [Addresses a gateway hands the client](research/remote-content.md): every picture, link, file, page and sign-in address a gateway can hand Clawtrate, who writes it, what each app does with it today, and what Electron, the browser and iOS can enforce.

@@ -30,7 +30,7 @@ The prototype walks every path of this version to its outcome: `prototype/setup.
 9. Approving a request
 10. Setting OpenClaw up (macOS and Linux, on this computer)
 11. Removing OpenClaw, or leaving it (not in this version)
-12. Connect a phone (not in this version)
+12. Connect a phone, through Clawtrate's relay
 13. A setup code on the desktop, and the iPhone's first screen
 14. Private access with Tailscale (read-only in this version)
 15. Several routes to one gateway
@@ -58,8 +58,8 @@ what the look found               one screen, one primary action, or none
   not found (another computer)      not offered in this version
 the app                           read-only; the status strip says when a forward is being restored
   access bar (bots.md §2)           the profile-qualified approve command to run on the gateway's computer
-  Settings, Gateway                 the route, Private access with Tailscale (read-only), Remove this gateway
-first launch (iPhone)             Scan or Paste a setup code; review the address; wait for approval
+  Settings, Gateway                 the route, Private access with Tailscale (read-only), Remote access, Remove this gateway
+first launch (iPhone)             Scan or Paste a code; review the relay or the address; wait for approval
 ```
 
 The first screen keeps what the old one had: the product's mark, the name, the slogan and the row of bots along the foot (`visual-language.md` §10). Only the form below the slogan changes.
@@ -321,7 +321,7 @@ Wherever the gateway waits for its owner (F-500): the access bar's "Requested" s
 
 In this version the approval is manual. The page shows the approve command for the selected profile, in the command block with its copy button, and says where to run it: "On devbox, approve this request for the default profile:" over `openclaw devices approve e5eb4aa8-175f-40f1-bc7a-8f15cfc40942` (Clawtrate's own profile: `openclaw --profile clawtrate devices approve …`). On an address route, where Clawtrate doesn't know the profile: "Run this on the gateway's computer, with `--profile <name>` if the gateway doesn't use the default profile." The waiting line and "Check now" follow the pairing screen; the waiting and retry state is as built.
 
-"Approve from here", which would run the approve command for the person, is not in this version: OpenClaw's approve command can follow a compatible replacement of the request, so the exact request, device, role and scopes can't yet be enforced at the moment of approval (research §2). It waits for that check (F-500, `todo`).
+"Approve from here", which would run the approve command for the person, is not in this version: OpenClaw's approve command can follow a compatible replacement of the request, so the exact request, device, role and scopes can't yet be enforced at the moment of approval (research §2). It waits for that check (F-500, `todo`). For a phone that came through the relay, `remote-access.md` §5.2 designs it, with that replacement detected and said after the fact.
 
 ## 10. Setting OpenClaw up (macOS and Linux, on this computer)
 
@@ -379,15 +379,15 @@ Removing OpenClaw is `todo` (F-514): it waits until each attempt's ownership is 
 
 **Leaving it**: removing the Clawtrate app does not remove OpenClaw. The install's sheet says so once.
 
-## 12. Connect a phone (not in this version)
+## 12. Connect a phone, through Clawtrate's relay
 
-Clawtrate doesn't hand a code to a phone in this version, and approves nothing for the person (F-506, F-507 and F-500, `todo`). A code Clawtrate makes is a `--voice-node` code meant for voice clients, with a node role and Talk; it is used only privately by the host for its own read request (research §3.1).
+A phone reaches the gateway through Clawtrate's relay and a connector on the gateway's computer, and the gateway's own pairing decides what it may do. [`remote-access.md`](remote-access.md) is the design: "Connect a phone" (F-506), "Approve from here" for the phone's request (F-500), the Remote access row in Settings, Gateway, and the iPhone's screens (F-507). In short:
 
-Settings, Gateway, "Connect a phone" opens a dialog that says so, and how a phone connects instead:
+- Settings, Gateway, on a route with a shell, has a row "Remote access". "Connect a phone…" turns it on after the host's dialog: Clawtrate puts its connector on the gateway's computer, adds 127.0.0.1 and ::1 to `gateway.trustedProxies` with the exact earlier value recorded and the result read back, and the person starts the connector with the command shown. Turning it off puts back exactly the earlier value, as section 14 requires of every setting Clawtrate changes.
+- "Make a code…" asks the host again, then shows a code as a QR code and as text, with its expiry, the relay's address and the connector's key code. A code is a bearer credential until a phone uses it, and the screen says so (`remote-access.md` §2).
+- When a phone has used the code, its request appears with its device code, and "Approve from here" approves it only for exactly read, read back afterwards.
 
-- "Clawtrate doesn't make codes for phones yet."
-- "A phone needs an encrypted address it can reach. Set one up with OpenClaw's network-exposure instructions." with a link to `https://docs.openclaw.ai/gateway/security/network-exposure`.
-- "On the iPhone, scan or paste a setup code, then approve the phone on the gateway's computer. A setup code stays valid until it is used or expires, even after you close where it was shown."
+A code Clawtrate makes for its own connection is still the host-private `--voice-node` code of section 7 and rule 5. A relay code carries a code of the same profile inside it, behind the connector's one-time enrollment, so only the first phone that presents it reaches the gateway (`remote-access.md` §2).
 
 ## 13. A setup code on the desktop, and the iPhone's first screen
 
@@ -407,13 +407,15 @@ Off loopback the gateway does not approve a device by its code alone (research �
 **On iPhone** (F-001, F-507), first launch:
 
 - The mark, the name, the slogan, then "Connect to your OpenClaw" (17/500).
-- "Scan a setup code" (primary, opens the camera), and "Paste a setup code" (default).
-- A hint: "Get a setup code from the gateway's owner, made on the gateway's computer."
+- "Scan a code" (primary, opens the camera), and "Paste a code" (default).
+- A hint: "Get a code from Clawtrate on your computer: Settings, Gateway, Connect a phone. A setup code from the gateway's owner works too."
 - "Advanced" (quiet link): the address-and-token form.
 
-After a scan or a paste comes a review screen, with Back: the title "Connect to devbox?", the validated address ("This code leads to devbox.tailnet.example, over an encrypted connection."), the expiry, and "Connect" (primary) and "Cancel". Nothing connects until Connect. The same validation applies as on the desktop.
+The host tells the two kinds of code apart by their fields. A Clawtrate code from "Connect a phone" leads to the relay's review, connecting and waiting screens in `remote-access.md` §7. A setup code leads to the screens below.
 
-**Waiting for approval**, with Back: the title "Waiting for approval", the validated address, "Ask the gateway's owner to approve this iPhone. Its device code is:", the device code "7C41-D2E0", and the approve command (section 9) with the request id. The waiting line follows. Approval opening the app read-only (F-509) is not proven off loopback yet; the prototype draws that end state only as a labelled future example.
+After a scan or a paste of a setup code comes a review screen, with Back: the title "Connect to devbox?", the validated address ("This code leads to devbox.tailnet.example, over an encrypted connection."), the expiry, and "Connect" (primary) and "Cancel". Nothing connects until Connect. The same validation applies as on the desktop.
+
+**Waiting for approval**, with Back: the title "Waiting for approval", the validated address, "Ask the gateway's owner to approve this iPhone. Its device code is:", the device code "7C41-D2E0", and the approve command (section 9) with the request id. The waiting line follows. For a setup code's address, approval opening the app read-only (F-509) is not proven yet; the prototype draws that end state only as a labelled future example. Through the relay it ran end to end (`remote-access.md` §7.3).
 
 ## 14. Private access with Tailscale (read-only in this version)
 
@@ -479,7 +481,7 @@ One gateway can be reached by several routes: this computer, SSH, an address on 
 
 The rows this design governs are in `docs/parity.md`. Statuses do not change. In this version:
 
-- **F-500, F-506 and F-507** stay `todo`: no code is handed to a phone and nothing is approved for the person.
+- **F-500, F-506 and F-507** stay `todo`: `remote-access.md` designs them through the relay, which isn't built yet.
 - **F-510 to F-512** stay `todo`: the Tailscale row is read-only, with OpenClaw's own instructions.
 - **F-501 to F-505** are macOS and Linux only, on this computer; remote setup, cancelling (F-502) and removal (F-514) wait for their proofs. **F-517** is for installing on Windows, `todo`.
 - **F-513** keeps ordered failover and failback, with one token per route.
@@ -628,10 +630,10 @@ The packages, in this order, each with checks of its security and failure cases 
 ## 20. Not covered here
 
 - Setting OpenClaw up on Windows (F-517), on musl Linux or FreeBSD, or on another computer over SSH; cancelling a setup; removing OpenClaw (F-514).
-- Handing a code to a phone (F-506), approving for the person (F-500), and the Tailscale switch (F-510 to F-512).
+- Handing a code to a phone (F-506) and approving for the person (F-500): `remote-access.md`. The Tailscale switch (F-510 to F-512).
 - SSH through a jump host (`ProxyJump`, `ProxyCommand`), and settings outside the subset of section 5. The person uses a setup code or Advanced.
 - OpenClaw profiles other than the default and `clawtrate`: Advanced reaches them.
 - Updating OpenClaw from Clawtrate, and changing the gateway's bind.
-- A relay of Clawtrate's own: this design has none, and nothing in it depends on one.
+- Clawtrate's relay: `remote-access.md`. Nothing else in this design depends on it.
 - "Another computer" over SSH on iPhone.
 - The pairing screen itself, which `visual-language.md` §10 keeps as it is.
