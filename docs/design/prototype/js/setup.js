@@ -129,6 +129,26 @@
   // Each: the message, the detail, an optional checkbox that must be ticked,
   // the confirming button's words, and where it leads.
 
+  // Approving a request (setup.md section 9). The route: SSH on devbox (default),
+  // this computer (approve-here), or an address (approve-address). The flow: a
+  // write upgrade (default), admin (flow=admin) or a first pairing
+  // (approve-pairing). exact=1 draws the future "Approve from here", which needs
+  // an exact approval path that OpenClaw 2026.10.6 doesn't have.
+  const approveRoute = screen === "approve-here" ? "here" : screen === "approve-address" ? "address" : "ssh";
+  const approveFlow = screen === "approve-pairing" ? "pairing" : params.get("flow") === "admin" ? "admin" : "upgrade";
+  // The route's selected profile (rule 11): approve-here is Clawtrate's own unless profile=default;
+  // an SSH route is the default unless profile=clawtrate. The found card and its pairing keep it.
+  const approveProfile = params.get("profile") || (approveRoute === "here" ? "clawtrate" : "default");
+  const ownProfile = approveProfile === "clawtrate";
+  const profileWords = ownProfile ? "Clawtrate's profile" : "the default profile";
+  const gatewayWords = (on) => `${ownProfile ? "Clawtrate" : "default"} gateway on ${on}`;
+  const approveCommand = () => `openclaw ${ownProfile && approveRoute !== "address" ? "--profile clawtrate " : ""}devices approve ${REQUEST}`;
+  const ADDED = {
+    upgrade: ["Send messages and start tasks", "Answer approvals", "Answer questions"],
+    admin: ["Send messages and start tasks", "Answer approvals", "Answer questions", "Change the gateway's settings, bots and accounts. This is admin access."],
+    pairing: ["Read bots, tasks and conversations."],
+  };
+
   const HOST = {
     sshAccount: {
       message: `Look for OpenClaw as ${full}, port 22?`,
@@ -153,13 +173,13 @@
       to: () => go("looking-there", { play: "1", next: "found-there", name: typedRaw }),
     },
     pair: {
-      message: "Pair this device read-only with the default gateway on this computer?",
+      message: `Pair this device read-only with the ${params.get("profile") === "clawtrate" ? "Clawtrate" : "default"} gateway on this computer?`,
       detail: "<p>The gateway saves this device.</p>",
       confirm: "Pair",
       to: () => go("connecting-here", { play: "1" }),
     },
     pairThere: {
-      message: `Pair this device read-only with the default gateway on ${full}?`,
+      message: `Pair this device read-only with the ${params.get("profile") === "clawtrate" ? "Clawtrate" : "default"} gateway on ${full}?`,
       detail: "<p>The gateway saves this device.</p>",
       confirm: "Pair",
       to: () => go("connecting-there", { play: "1", name: typedRaw }),
@@ -176,6 +196,22 @@
         "<p>Clawtrate checks the OpenClaw and Node.js downloads against fingerprints built into this version. Setup also installs code from npm that Clawtrate hasn't pinned or verified. That code can run with your account's permissions.</p>",
       confirm: "Set up",
       to: () => go("installing", { play: "1" }),
+    },
+    // "Approve from here" (setup.md section 9), drawn only with exact=1: it needs
+    // an exact approval path the running OpenClaw proves. Confirming runs the
+    // host-result fixture in the page (approval controller below).
+    approveRequest: {
+      message:
+        approveFlow === "pairing"
+          ? `Pair this device with the ${gatewayWords(approveRoute === "here" ? "this computer" : full)}?`
+          : `Approve this device's request on the ${gatewayWords(approveRoute === "here" ? "this computer" : full)}?`,
+      detail:
+        `<p>Profile: ${approveProfile}${approveRoute === "here" ? "" : ` · ${full}, port 22`} · this device <span class="s-device-inline">5AE2-3AFF</span></p>` +
+        (approveFlow === "pairing" ? "" : `<p>It adds:</p>`) +
+        `<ul class="s-host-list" data-added>${ADDED[approveFlow].map((x) => `<li>${x}</li>`).join("")}</ul>` +
+        `<p>Clawtrate approves request e5eb4aa8 on ${approveRoute === "here" ? "this computer" : host}, then checks what the gateway granted.</p>`,
+      confirm: approveFlow === "pairing" ? "Pair" : "Approve",
+      onConfirm: () => CT.approval?.confirm(),
     },
     removeRoute: {
       message: "Remove devbox from Clawtrate?",
@@ -196,7 +232,10 @@
       `<h2 id="s-host-title" tabindex="-1">${d.message}</h2><div id="s-host-detail" class="s-host-detail">${d.detail}</div>` +
       (d.checkbox ? `<label class="s-check"><input type="checkbox" data-host-check /> <span>${d.checkbox}</span></label>` : "") +
       `</div></div><div class="s-host-buttons"><button type="button" class="button" data-size="sm" data-host-cancel>Cancel</button>` +
-      `<a class="button" data-variant="primary" data-size="sm" href="${d.to()}" data-host-confirm${d.checkbox && !d.optional ? ' aria-disabled="true"' : ""}>${d.confirm}</a></div></div></div>`
+      (d.onConfirm
+        ? `<button type="button" class="button" data-variant="primary" data-size="sm" data-host-confirm>${d.confirm}</button>`
+        : `<a class="button" data-variant="primary" data-size="sm" href="${d.to()}" data-host-confirm${d.checkbox && !d.optional ? ' aria-disabled="true"' : ""}>${d.confirm}</a>`) +
+      `</div></div></div>`
     );
   };
 
@@ -204,7 +243,7 @@
 
   const runningFacts = (where = "On this computer only", version = "2026.10.6") => [
     ["Version", version],
-    ["Profile", "default"],
+    ["Profile", params.get("profile") === "clawtrate" ? "clawtrate" : "default"],
     ["Listens", where],
     ["Service", "LaunchAgent, starts when you log in"],
   ];
@@ -538,14 +577,6 @@
     (foot ? `<div class="s-mock-foot">${foot}</div>` : "") +
     `</div>`;
 
-  const accessRequested = () =>
-    `<div class="access-bar" role="status" data-s-title tabindex="-1"><div class="access-row">${icon("clock")}` +
-    `<span class="shelf-text"><b>Waiting for the gateway's owner.</b> On devbox, approve this request for the default profile:</span></div>` +
-    `<div class="command command-line"><code>openclaw devices approve ${REQUEST}</code>${copyButton("Copy approve command", `openclaw devices approve ${REQUEST}`)}</div>` +
-    `<div class="access-row"><span class="access-id">Request e5eb4aa8<span class="access-wait">checking again in 4s</span></span><span class="spacer"></span>` +
-    `<button type="button" class="button" data-variant="quiet" data-size="sm">Check now</button>` +
-    `<button type="button" class="button" data-variant="quiet" data-size="sm">Cancel request</button></div></div>`;
-
   const gatewayRows = () =>
     `<ul class="s-rows" aria-label="Gateway">` +
     `<li><span class="s-row-text"><span class="s-row-title">Reached through</span><span class="s-row-sub">you@devbox.example over SSH · In use</span></span></li>` +
@@ -559,7 +590,9 @@
   const settings = (body) => mockApp() + dialog("settings-lite", "Gateway · devbox", body, "", "first");
 
   const OVER = {
-    approve: () => mockApp("", accessRequested()),
+    approve: () => mockApp("", `<div data-approval></div>`),
+    "approve-here": () => mockApp("", `<div data-approval></div>`),
+    "approve-address": () => mockApp("", `<div data-approval></div>`),
     restoring: () =>
       mockApp(
         `<div class="status-strip" data-tone="warn" role="status" data-s-title tabindex="-1"><span class="status-dot"></span>` +
@@ -639,6 +672,10 @@
       command(`openclaw devices approve ${PHONE_REQUEST}`, "Copy approve command") +
       `<p class="waiting" role="status"><span class="status-dot" data-status="connecting"></span>Waiting for approval, checking again in 4s</p>`,
 
+    // A first pairing on a gateway that asks before every device (section 7):
+    // the pairing screen, with the same approval panel as the access bar.
+    "approve-pairing": () => back("found-there") + mark() + title("Approve this device") + `<div data-approval></div>`,
+
     "iphone-done": () =>
       futureLabel +
       mark() +
@@ -686,7 +723,11 @@
       });
     }
     confirm.addEventListener("click", (event) => {
-      if (confirm.getAttribute("aria-disabled") === "true") event.preventDefault();
+      if (confirm.getAttribute("aria-disabled") === "true") return event.preventDefault();
+      if (HOST[op].onConfirm) {
+        close();
+        HOST[op].onConfirm();
+      }
     });
     const close = () => {
       scrim.remove();
@@ -725,6 +766,140 @@
   if (heading) {
     if (params.get("focus") !== "0") heading.focus({ preventScroll: true });
     live.textContent = heading.textContent;
+  }
+  // The approval controller (setup.md section 9) --------------------------------
+  // Renders the waiting state, the read-back after an approval and its
+  // outcome, in the page. What a host would do is counted in CT.approvalLog, so
+  // the checks can assert that nothing was approved, saved or removed when it
+  // shouldn't be. Fixtures, chosen in the address and never by a click:
+  //   result=     the read-back after the owner's own approval: exact (default),
+  //               other, unread, gone, already, rejected, mismatch, identity,
+  //               different, listfail (with code=<n> when an exit code was recorded)
+  //   hostresult= the exact path's outcome, with exact=1: granted (default),
+  //               changed, refused, refused-granted, uncertain, readback
+  const panel = root.querySelector("[data-approval]");
+  if (panel) {
+    const where = approveRoute === "here" ? "this computer" : approveRoute === "ssh" ? host : null;
+    const exactPath = params.get("exact") === "1" && approveRoute !== "address";
+    const log = (CT.approvalLog = { approveCalls: 0, tokenSaved: false, removeCalls: 0, listReads: 0 });
+    const state = { phase: "waiting", outcome: null };
+    const live = document.getElementById("setup-live");
+    const act = (label, action, variant = "") =>
+      `<button type="button" class="button"${variant ? ` data-variant="${variant}"` : ""} data-size="sm" data-act="${action}">${label}</button>`;
+    const asked = `<ul class="scopes" aria-label="Asked for">${ADDED[approveFlow].map((x) => `<li>${icon(approveFlow === "pairing" ? "read" : "check")}${x.replace(/\.$/, "")}</li>`).join("")}</ul>`;
+    const commandBlock = () =>
+      `<p class="s-hint s-left" data-where>` +
+      (approveRoute === "address"
+        ? "Run this on the gateway's computer, with <code>--profile &lt;name&gt;</code> if the gateway doesn't use the default profile:"
+        : approveRoute === "here"
+          ? `In Terminal on this computer, run this for ${profileWords}:`
+          : `On ${host}, run this for ${profileWords}:`) +
+      `</p>` +
+      command(approveCommand(), "Copy approve command");
+    const granted = () =>
+      approveFlow === "pairing"
+        ? "<b>Paired, read-only.</b> Clawtrate can read your bots, tasks and conversations."
+        : approveFlow === "admin"
+          ? "<b>Admin access granted.</b> You can change this now."
+          : "<b>Access granted</b> · you can send, stop and answer";
+    // The read-back after an approval: what Clawtrate keeps (section 9).
+    const OUTCOMES = {
+      exact: { text: granted(), granted: true },
+      already: { text: `The gateway now shows the requested access. ${granted()}`, granted: true },
+      other: { tone: "danger", text: "<b>Clawtrate disconnected.</b> It couldn't confirm what this request granted. Review this device's access on the gateway before reconnecting.", actions: () => lookAgain() },
+      unread: { tone: "danger", text: "<b>Clawtrate disconnected.</b> It couldn't confirm what this request granted. Review this device's access on the gateway before reconnecting.", actions: () => lookAgain() },
+      gone: { text: "Clawtrate couldn't find this request in the gateway's pending list.", actions: () => act("Check again", "check") + act("Request again", "request") },
+      rejected: { text: "<b>The request was denied.</b> Nothing changed. This device keeps the access it had.", actions: () => act("Request again", "request") },
+      mismatch: { text: "The gateway's pending request for this device isn't the one Clawtrate asked for.", actions: () => act("Request again", "request") },
+      identity: { text: "Clawtrate couldn't confirm this gateway's identity or version.", actions: () => lookAgain() },
+      different: { tone: "danger", text: "This route now leads to a different gateway.", actions: () => `<a class="button" data-size="sm" href="${go("there")}">Review</a>` },
+      listfail: { text: `Couldn't read the gateway's requests on ${where || "the gateway's computer"}.${params.get("code") ? ` OpenClaw exited with code ${esc(params.get("code"))}.` : ""}`, actions: () => act("Check again", "check") },
+      // The exact path's own outcomes.
+      changed: { text: "This changed since you looked. Look again.", actions: () => act("Look again", "request") },
+      refused: { text: "Clawtrate did not approve this request.", actions: () => act("Request again", "request") },
+      "refused-granted": { text: `Clawtrate did not approve this request. The gateway now shows the requested access. ${granted()}`, granted: true },
+      uncertain: { text: `Couldn't confirm approval on ${where}. The outcome isn't known yet.`, actions: () => act("Check again", "recheck") },
+    };
+    // Looking again stays with the route's profile: the found card and its pairing name it.
+    const lookAgain = () => `<a class="button" data-size="sm" href="${go(approveRoute === "here" ? "found" : "found-there", { profile: approveProfile })}">Look again</a>`;
+    const render = () => {
+      let html = "";
+      if (state.phase === "waiting") {
+        const lead = approveRoute === "address" ? "Waiting for approval." : `Waiting for approval on ${where}.`;
+        html =
+          `<div class="access-row">${icon("clock")}<span class="shelf-text" data-approval-lead><b>${lead}</b></span></div>` +
+          (exactPath
+            ? `<p class="s-future" role="note">Future example: this needs an exact approval path that OpenClaw 2026.10.6 doesn't offer.</p>` +
+              `<div class="access-row s-approve-row"><button type="button" class="button" data-variant="primary" data-size="sm" data-host="approveRequest">Approve from here…</button></div>`
+            : "") +
+          commandBlock() +
+          (approveFlow === "pairing" ? asked : "") +
+          `<div class="access-row"><span class="access-id">Request e5eb4aa8<span class="access-wait">checking again in 4s</span></span><span class="spacer"></span>` +
+          act("Check now", "check", "quiet") +
+          act("Stop waiting", "stop", "quiet") +
+          `</div>` +
+          `<div class="s-proto-event"><span>Prototype, not product:</span> <button type="button" class="button" data-size="sm" data-act="owner">The owner approves on ${where || "the gateway's computer"}</button></div>`;
+      } else if (state.phase === "checking") {
+        html = `<div class="access-row">${icon("clock")}<span class="shelf-text" aria-busy="true" data-approval-busy>${state.busy}</span></div>`;
+      } else if (state.phase === "stopped") {
+        html = `<div class="access-row">${icon("clock")}<span class="shelf-text">Stopped waiting. The request may still be pending on the gateway.</span></div><div class="access-row s-approve-row">${act("Check again", "check")}</div>`;
+      } else {
+        const o = OUTCOMES[state.outcome];
+        html = `<div class="access-row">${icon(o.tone === "danger" ? "warning" : o.granted ? "check" : "clock")}<span class="shelf-text">${o.text}</span></div>` + (o.actions ? `<div class="access-row s-approve-row">${o.actions()}</div>` : "");
+        if (o.granted && approveFlow !== "pairing") html += `<div class="s-mock-composer" aria-label="Message Otto">Message Otto</div>`;
+      }
+      const tone = state.phase === "outcome" && OUTCOMES[state.outcome].tone;
+      panel.innerHTML = `<div class="access-bar s-approval" data-phase="${state.phase}"${state.outcome ? ` data-outcome="${state.outcome}"` : ""}${tone ? ` data-tone="${tone}"` : ""} role="status" data-s-title tabindex="-1">${html}</div>`;
+      CT.hydrate(panel);
+    };
+    const settle = (outcome) => {
+      state.phase = "outcome";
+      state.outcome = outcome;
+      if (OUTCOMES[outcome].granted) log.tokenSaved = true;
+      render();
+      live.textContent = panel.textContent.trim().split(/(?<=\.) /)[0];
+    };
+    const busy = (text, then, ms = 500) => {
+      state.phase = "checking";
+      state.busy = text;
+      render();
+      setTimeout(then, ms);
+    };
+    // The owner approved by the command: read the record, reconnect, then decide.
+    const afterOwner = () => {
+      log.listReads += 1;
+      busy(`Checking what this request granted on ${where || "the gateway"}…`, () => settle(OUTCOMES[params.get("result")] ? params.get("result") : "exact"));
+    };
+    CT.approval = {
+      state,
+      // The exact path: list again, approve once, read back.
+      confirm: () => {
+        log.listReads += 1;
+        const r = params.get("hostresult") || "granted";
+        if (r === "changed") return settle("changed");
+        log.approveCalls += 1;
+        busy(`Approving on ${where}…`, () =>
+          busy("Checking what the gateway granted…", () => {
+            if (r === "granted") return settle("exact");
+            if (r === "readback") return settle("other");
+            settle(r);
+          }),
+        );
+      },
+    };
+    panel.addEventListener("click", (event) => {
+      const a = event.target.closest("[data-act]")?.dataset.act;
+      if (!a) return;
+      if (a === "owner") afterOwner();
+      if (a === "stop") ((state.phase = "stopped"), render());
+      // Requests and checks read again; they never reissue an approval.
+      if (a === "request" || a === "check") ((log.listReads += 1), (state.phase = "waiting"), (state.outcome = null), render());
+      if (a === "recheck") ((log.listReads += 1), busy(`Checking on ${where}…`, () => settle("gone")));
+    });
+    render();
+    const heading = root.querySelector("[data-s-title]");
+    if (heading && params.get("focus") !== "0") heading.focus({ preventScroll: true });
+    if (heading) live.textContent = heading.textContent;
   }
   if (params.get("host")) openHost(params.get("host"));
 

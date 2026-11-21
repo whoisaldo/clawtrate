@@ -424,7 +424,9 @@
     const newButton = b && canWrite() ? `<button type="button" class="button" data-variant="primary" data-new="${b.id}">New task</button>` : "";
     const choose = onePane() ? `<button type="button" class="button" data-action="back">Choose a task</button>` : "";
     if (!b) {
-      el.innerHTML = emptyState(null, state0 === "discovering" ? "Loading" : "No bots to show", state0 === "discovering" ? "Loading this gateway's bots." : "This gateway has no bots yet.");
+      // A page built on this one may draw its own prompt for a gateway with no bots (bots.html: the first bot).
+      const prompt = state0 === "discovering" ? null : CT.emptyGateway?.();
+      el.innerHTML = prompt || emptyState(null, state0 === "discovering" ? "Loading" : "No bots to show", state0 === "discovering" ? "Loading this gateway's bots." : "This gateway has no bots yet.");
     } else if (!b.tasks.length) {
       el.innerHTML = emptyState(b, "No tasks yet", canWrite() ? `Start a task and ${b.name} will take it from there.` : `Conversations with ${b.name} will be listed here.`, newButton);
     } else if (!t) {
@@ -435,7 +437,8 @@
         `<div class="skeleton" style="width:46%;margin-left:auto;margin-top:22px"></div>` +
         `<div class="skeleton" style="width:62%;height:88px;margin-top:16px"></div><div class="skeleton" style="width:38%"></div></div>`;
     } else if (t.fresh && !t.html) {
-      el.innerHTML = emptyState(b, "Nothing here yet", `Say what you need, and ${b.name} will take it from there.`);
+      // A page built on this one may add a note to a new task (bots.html: what Create confirmed), drawn in the empty state so it stays in view.
+      el.innerHTML = emptyState(b, "Nothing here yet", `Say what you need, and ${b.name} will take it from there.`, t.note || "");
     } else {
       const body =
         t.html ??
@@ -466,10 +469,12 @@
     }
     delete el.dataset.readonly;
     const draft = model.drafts[t.id] || "";
+    // A page built on this one can hold a task's composer until it has read something back (bots.html: a new bot's command setting).
+    const held = t.hold ? " disabled" : "";
     el.innerHTML =
       `<div class="composer-inner"><div class="composer-box">` +
       `<button type="button" class="icon-button" data-action="attach" aria-label="Attach files">${icon("plus")}</button>` +
-      `<textarea class="composer-input" rows="1" aria-label="Message ${b.name}" placeholder="${offline() ? "Offline. Messages send when you reconnect." : `Message ${b.name}`}">${esc(draft)}</textarea>` +
+      `<textarea class="composer-input" rows="1" aria-label="Message ${b.name}" placeholder="${offline() ? "Offline. Messages send when you reconnect." : `Message ${b.name}`}"${held}>${esc(draft)}</textarea>` +
       `<button type="button" class="icon-button send-button" data-action="send" aria-label="Send"${canSend() ? "" : " disabled"}>${icon("arrow-up")}</button>` +
       `</div></div>`;
   }
@@ -477,7 +482,7 @@
   // One guard for every way of sending: the button, Enter, anything else.
   function canSend() {
     const t = currentTask();
-    return Boolean(t && canWrite() && (model.drafts[t.id] || "").trim());
+    return Boolean(t && canWrite() && !t.hold && (model.drafts[t.id] || "").trim());
   }
 
   function send() {
@@ -1026,6 +1031,6 @@
     });
   }
 
-  window.app = { model, bots, setConnection, setPanel, setTab, openTask, selectBot, toggleFold, togglePin, newTask, send, holdPlace, overlaying };
+  window.app = { model, bots, render, setConnection, setPanel, setTab, openTask, selectBot, toggleFold, togglePin, newTask, send, holdPlace, overlaying };
   ext.ready?.(window.app);
 })();

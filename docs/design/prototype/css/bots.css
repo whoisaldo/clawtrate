@@ -1411,3 +1411,28 @@ button.b-open[role="radio"] .icon {
 [data-motion="reduce"] .b-disclosure > summary .icon {
   transition: none;
 }
+
+/* The first bot (bots.md section 3, controls.md section 10): the prompt on a
+   gateway with no bots, and the note that names the new bot's command policy
+   once it reads back. */
+.b-first .b-preview {
+  display: block;
+  margin: 0 auto 12px;
+}
+
+.b-first-bar {
+  margin: 16px auto 0;
+  max-width: 480px;
+  text-align: left;
+}
+
+.b-created {
+  width: min(560px, 100% - 32px);
+  margin: 0 auto 16px;
+}
+
+[data-b-stricter] {
+  display: block;
+  margin-top: 4px;
+  color: var(--warn);
+}
