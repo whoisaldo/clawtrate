@@ -114,6 +114,19 @@ import {
 } from "./sidebar.ts";
 import type { Digest } from "./bounds.ts";
 import {
+  MAX_DESTINATION_CHARS,
+  MAX_FINGERPRINT_CHARS,
+  MAX_LOOK_OTHER_CHARS,
+  MAX_LOOK_OTHERS,
+  MAX_SSH_NOTE_CHARS,
+  type RouteStatus,
+  type SetupFailure,
+  type SetupLook,
+  type SetupState,
+  type ShownHostKey,
+  type SshSetup,
+} from "./setup.ts";
+import {
   MAX_CHECKIN_KEPT,
   MAX_CHECKIN_PROMPT_CHARS,
   type CheckInDefaults,
@@ -1000,6 +1013,65 @@ export const ACCOUNTS: Bound = object<AccountsState>()({
   write: accountWrite,
 });
 
+/** Setting up on the host's computer (`setup.ts`): fixed facts and a few short names. */
+const setupLook = object<SetupLook>()({
+  outcome: ENUM,
+  reason: ENUM,
+  version: NAME,
+  profile: NAME,
+  listens: ENUM,
+  service: ENUM,
+  port: NUMBER,
+  authMode: ENUM,
+  access: ENUM,
+  others: list(MAX_LOOK_OTHERS, text(MAX_LOOK_OTHER_CHARS)),
+});
+/** A host key as shown: its type's label and its fingerprint. */
+const shownKey = { label: ENUM, fingerprint: text(MAX_FINGERPRINT_CHARS) };
+/** Another computer (`setup.ts`): what was typed, the account resolved, the host's fixed notes. */
+const there = object<SshSetup>()({
+  destination: text(MAX_DESTINATION_CHARS),
+  account: text(MAX_DESTINATION_CHARS),
+  name: text(MAX_DESTINATION_CHARS),
+  port: NUMBER,
+  invalid: FLAG,
+  refusal: object<NonNullable<SshSetup["refusal"]>>()({
+    category: ENUM,
+    setting: ENUM,
+    title: text(MAX_SSH_NOTE_CHARS),
+    sentence: text(MAX_SSH_NOTE_CHARS),
+  }),
+  key: object<NonNullable<SshSetup["key"]>>()({
+    state: ENUM,
+    presented: object<ShownHostKey>()(shownKey),
+    trusted: object<NonNullable<NonNullable<SshSetup["key"]>["trusted"]>>()({
+      ...shownKey,
+      pinnedAt: ENUM,
+    }),
+  }),
+  failure: object<NonNullable<SshSetup["failure"]>>()({ kind: ENUM, cause: ENUM, exit: NUMBER }),
+  resume: FLAG,
+  notice: ENUM,
+});
+const route = object<RouteStatus>()({
+  name: text(MAX_DESTINATION_CHARS),
+  account: text(MAX_DESTINATION_CHARS),
+  port: NUMBER,
+  phase: ENUM,
+  cause: ENUM,
+  profile: ENUM,
+  retry: FLAG,
+});
+const setup = object<SetupState>()({
+  phase: ENUM,
+  step: NUMBER,
+  slow: FLAG,
+  look: setupLook,
+  failure: object<SetupFailure>()({ kind: ENUM, exitCode: NUMBER, port: NUMBER, reason: ENUM }),
+  there,
+  route,
+});
+
 // Check-ins (check-ins.ts): one job and one setting per bot, the default and the one save under way.
 const checkInJob = object<CheckInJob>()({
   botId: ID,
@@ -1105,6 +1177,7 @@ export const STATE: Bound = flagged<ClawtrateState>()({
   routines: ROUTINES,
   retention: retentionAlarm,
   sidebar,
+  setup,
   checkIns: CHECK_INS,
   turnLimitMinutes: NUMBER,
   usage: USAGE,

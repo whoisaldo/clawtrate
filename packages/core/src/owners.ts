@@ -35,6 +35,7 @@ import {
   MAX_APPROVAL_OUTCOMES,
   MAX_APPROVAL_READERS,
   MAX_OUTCOME_LOOKUPS,
+  MAX_ROUTE_HELD_WRITES,
   MAX_SPAWN_LINKS,
   MAX_STREAMS_PER_TASK,
 } from "./client.ts";
@@ -243,6 +244,8 @@ export const CLIENT_OWNERS: Record<string, Owner> = {
   },
   // The store's listeners: a host's windows and web viewers.
   "store.listeners": { max: MAX_STORE_LISTENERS, each: 0, row: null },
+  // A routed connection's token writes, functions held until its identity matched, then dropped.
+  routeHeldWrites: { max: MAX_ROUTE_HELD_WRITES, each: 0, row: null },
   // Viewers that went away; an entry lives only as long as the viewer's own object.
   withdrawnOwners: { max: 0, each: 0, row: null, weak: true },
   // Provider accounts (`accounts-engine.ts`): how each account was made, from the record of the
@@ -352,16 +355,15 @@ export const MAX_FORWARD_LISTENERS = 8;
 export const MAX_HOST_KEY_CHARS = 8192;
 
 /**
- * The desktop app's SSH transport (`apps/desktop/src/main/ssh/`). It is not
- * held by a bridge session yet, so nothing here is counted in a row of the
- * host's worst case; the unit that puts it behind the interface gives its
- * captured keys a row.
+ * The desktop app's SSH transport (`apps/desktop/src/main/ssh/`), behind the
+ * setup screens of "Another computer": its captured keys wait for the
+ * person's decision, and count in the host's worst case (`sshCaptures`).
  */
 export const SSH_TRANSPORT_OWNERS: Record<string, Owner> = {
   captures: {
     max: MAX_SSH_CAPTURES,
     each: 3 * ID + MAX_HOST_KEY_CHARS + SHORT,
-    row: null,
+    row: "sshCaptures",
     opaque: "one public host key, at most `MAX_HOST_KEY_CHARS`, each dropped after 2 minutes",
   },
   forwards: { max: MAX_SSH_FORWARDS, each: N, row: null },
@@ -371,6 +373,23 @@ export const SSH_TRANSPORT_OWNERS: Record<string, Owner> = {
 export const SSH_PROCESS_OWNERS: Record<string, Owner> = {
   running: { max: MAX_SSH_PROCESSES, each: N, row: null },
 };
+/** Channels the setup host keeps: one forward attempt's local socket each, the newest. */
+export const MAX_SSH_CHANNELS = 16;
+/** Destinations whose route id the setup host remembers in one run. */
+export const MAX_SSH_REMEMBERED_IDS = 16;
+/** Route records the desktop's route store keeps, each with at most one sealed token. */
+export const MAX_SSH_ROUTE_RECORDS = 8;
+
+/**
+ * The setup host of "Another computer" (`apps/desktop/src/setup/remote.ts`):
+ * the channels it gave the client, by address, and the route id of each
+ * destination looked at in this run. Neither is shown or sent.
+ */
+export const REMOTE_SETUP_OWNERS: Record<string, Owner> = {
+  channels: { max: MAX_SSH_CHANNELS, each: 2 * ID + SHORT, row: null },
+  ids: { max: MAX_SSH_REMEMBERED_IDS, each: 2 * ID, row: null },
+};
+
 /** A forward's state listeners (`ForwardSupervisor`): functions. */
 export const SSH_FORWARD_OWNERS: Record<string, Owner> = {
   listeners: { max: MAX_FORWARD_LISTENERS, each: N, row: null },
@@ -390,6 +409,7 @@ export function ownerClassFields(): Record<string, string[]> {
     SshTransport: new Set(Object.keys(SSH_TRANSPORT_OWNERS)),
     ProcessTable: new Set(Object.keys(SSH_PROCESS_OWNERS)),
     ForwardSupervisor: new Set(Object.keys(SSH_FORWARD_OWNERS)),
+    RemoteSetup: new Set(Object.keys(REMOTE_SETUP_OWNERS)),
   };
   for (const path of Object.keys(CLIENT_OWNERS)) {
     const parts = path.split(".");
@@ -437,5 +457,6 @@ export function ownerRows(viewers: number): Record<string, number> {
   add(ATTACHMENT_OWNERS, 1);
   add(SAVE_OWNERS, 1);
   add(UPDATE_PREFERENCE_OWNERS, 1);
+  add(SSH_TRANSPORT_OWNERS, 1);
   return rows;
 }

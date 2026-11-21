@@ -320,7 +320,7 @@ describe.skipIf(!availability.ok)(title, { timeout: 60000 }, () => {
       if (!opened.ok) throw new Error(`forward refused: ${opened.kind}`);
       await waitFor(() => opened.forward.state.phase === "up", 20000, "the forward to come up");
       if (opened.forward.state.phase !== "up") throw new Error("expected up");
-      const oldPort = opened.forward.state.localPort;
+      const oldPort = opened.forward.state.local;
       own.t.writeConfig(block(b.port));
       expect(own.transport.prepareRoute("move", "movebox")).toEqual({
         ok: false,
@@ -630,7 +630,7 @@ describe.skipIf(!availability.ok)(title, { timeout: 60000 }, () => {
     const first = forward.state;
     if (first.phase !== "up") throw new Error();
     expect(first.restored).toBe(false);
-    expect(await httpGet(first.localPort)).toBe(200);
+    expect(await httpGet(first.local)).toBe(200);
     // The check before "up" was one plain request through the forward, with no credential.
     expect(gateway.requests[0]).toMatch(/^GET \/healthz /);
     expect(gateway.requests[0]).not.toMatch(/authorization|cookie|token/i);
@@ -656,7 +656,7 @@ describe.skipIf(!availability.ok)(title, { timeout: 60000 }, () => {
     // The LOOK ran again before the route was usable.
     expect(started.filter((s) => s.args.includes("/bin/sh")).length).toBe(looksBefore + 1);
     expect(states.slice(-2).map((s) => s.phase)).toEqual(["verifying", "up"]);
-    expect(await httpGet(again.localPort)).toBe(200);
+    expect(await httpGet(again.local)).toBe(200);
 
     // The computer stops answering: sshd is down; the forward waits with the cause, then comes back.
     await sshd.stop();

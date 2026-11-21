@@ -30,6 +30,7 @@ async function connected(identity: () => string) {
       token: "device-token",
       grantedScopes: HELD,
       heldScopes: HELD,
+      adminHeld: true,
     }),
   });
   const client = new ClawtrateClient(testHost(gateway, storage), FAST);

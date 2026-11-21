@@ -475,6 +475,7 @@ function tidy(entries: MenuEntry[]): MenuEntry[] {
 }
 
 export function Rail({
+  routeName = null,
   bots,
   tasksByBot,
   discovery,
@@ -500,6 +501,8 @@ export function Rail({
   onOpenRoutines,
   onOpenRoutineRun,
 }: {
+  /** The SSH route's account: the gateway's name when the address is a forward's (setup.md §8). */
+  routeName?: string | null;
   bots: Bot[];
   tasksByBot: Record<string, Task[]>;
   discovery: DiscoveryState;
@@ -562,7 +565,7 @@ export function Rail({
     null,
   );
   const listRef = useRef<HTMLUListElement>(null);
-  const gateway = gatewayLabel(connection.gatewayUrl);
+  const gateway = routeName ?? gatewayLabel(connection.gatewayUrl);
   const words = presenceWords(connection, catchingUp);
   const dot = presenceDot(connection, catchingUp);
   const onScreenKey = routinesOpen ? null : (selection.task?.key ?? null);

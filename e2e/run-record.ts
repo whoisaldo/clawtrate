@@ -62,7 +62,9 @@ export function readRecord(path: string): RunRecord | null {
         (entry) =>
           (entry?.name === `e2e-${record.run}` ||
             entry?.name === `e2e-${record.run}-other` ||
-            entry?.name === `e2e-${record.run}-acct`) &&
+            entry?.name === `e2e-${record.run}-acct` ||
+            // The setup checks' own instance, recorded by e2e/setup.spec.ts.
+            entry?.name === `e2e-${record.run}-setup`) &&
           typeof entry.runId === "string" &&
           /^[0-9a-f]{48}$/.test(entry.runId),
       ) &&

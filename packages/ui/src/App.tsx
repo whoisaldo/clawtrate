@@ -100,7 +100,12 @@ export function App({
   else if (mismatch && (status === "connected" || status === "idle" || status === "pairing")) {
     setMismatch(null);
   }
-  const screen = mismatch ? "connect" : screenFor(state);
+  // Connected through setup opens the app only once the bots were read (docs/design/setup.md §7).
+  const setupHolds =
+    info.setup !== undefined &&
+    (state.setup?.phase === "connecting" ||
+      (state.setup?.phase === "failed" && state.setup.failure?.kind === "bots"));
+  const screen = mismatch || setupHolds ? "connect" : screenFor(state);
   // When one screen replaces another and takes focus with it, focus the first
   // control of the new one. Not on launch: nothing had focus to lose.
   const shown = useRef(screen);
@@ -124,6 +129,7 @@ export function App({
           accounts={state.accounts}
           checkIns={state.checkIns}
           bots={state.bots}
+          route={state.setup?.route ?? null}
           waitingMessages={restartWaitingMessages(state)}
           updateReading={updated}
           initialUpdates={openUpdates}
@@ -149,6 +155,7 @@ export function App({
           connection={state.connection}
           discovery={state.discovery}
           info={info}
+          setup={state.setup}
           mismatch={mismatch}
           inert={settingsOpen}
         />

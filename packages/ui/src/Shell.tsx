@@ -482,6 +482,7 @@ export function Shell({
       inert={inert}
     >
       <Rail
+        routeName={state.setup?.route?.account ?? null}
         bots={state.bots}
         tasksByBot={state.tasksByBot}
         discovery={state.discovery}
@@ -545,6 +546,7 @@ export function Shell({
                       retryAt={state.connection.retryAt}
                       onRetry={() => void send({ type: "retry" })}
                       onReload={reload}
+                      onRoute={() => void send({ type: "setupRetryRoute" })}
                     />
                   )
                 }

@@ -16,8 +16,7 @@ import { runDirFor } from "../tools/dev-gateway/src/instance.ts";
 import { fuseMismatches } from "../apps/desktop/packaging/fuse-check.ts";
 import { macSigningRequested, windowsSigningRequested } from "../apps/desktop/packaging/signing.ts";
 import { APP_ID } from "../apps/desktop/src/main/identity.ts";
-import { appEnv } from "./desktop-driver.ts";
-import { packagedExecutable } from "./global-setup.ts";
+import { launchPlace, packagedExecutable } from "./global-setup.ts";
 import {
   integrityLevels,
   mainWindowTitle,
@@ -32,6 +31,7 @@ const APP = process.env.CLAWTRATE_PACKAGED_APP!;
 const USER_DATA = process.env.CLAWTRATE_PACKAGED_USER_DATA!;
 const APP_PID = Number(process.env.CLAWTRATE_PACKAGED_PID);
 const APP_LOG = process.env.CLAWTRATE_PACKAGED_LOG ?? "";
+const SANDBOX = process.env.CLAWTRATE_PACKAGED_SANDBOX!;
 /** A made-up key for the scripted API-key sign-in: its account is `acme:packaged`. */
 const TYPED_KEY = "clawtrate-dev-key.acme.packaged";
 
@@ -113,6 +113,9 @@ test("opens its window from the packaged app on the connect screen", async () =>
   expect(decodeURI(page.url())).toBe(bundled);
   await expect(page).toHaveTitle("Clawtrate");
   await expect(page.getByRole("heading", { name: "Clawtrate" })).toBeVisible();
+  // The first screen asks where OpenClaw runs; the address-and-token form is under Advanced.
+  await expect(page.getByRole("heading", { name: "Where does OpenClaw run?" })).toBeVisible();
+  await page.getByRole("button", { name: "Advanced" }).click();
   await expect(page.getByPlaceholder("Gateway address")).toBeVisible();
   await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
   // This checks the packaged build capability before a verified offer exists.
@@ -172,6 +175,28 @@ test("opens its window from the packaged app on the connect screen", async () =>
   ]);
   expect(page_.csp).toContain("default-src 'self'");
   expect(page_.csp).toContain("script-src 'self'");
+});
+
+test("looks on this computer only in the sandbox the launch check gave it", async () => {
+  await page.getByRole("button", { name: "Back" }).click();
+  await page
+    .getByRole("list", { name: "Where does OpenClaw run?" })
+    .getByRole("button", { name: /This computer/ })
+    .click();
+  if (WINDOWS) {
+    await expect(page.getByRole("heading", { name: "Use Advanced on Windows" })).toBeVisible();
+  } else {
+    // The run's own instance, by its profile: the only one the sandbox lets the look see.
+    await expect(page.getByRole("heading", { name: "OpenClaw is running" })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("setup-found").locator("dl > div").nth(1)).toHaveText(
+      `Profileclawtrate-dev-${INSTANCE}`,
+    );
+  }
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: "Advanced" }).click();
+  await expect(page.getByPlaceholder("Gateway address")).toBeVisible();
 });
 
 test("starts with the update tracks compiled into the packaged app", async () => {
@@ -255,10 +280,18 @@ test("shows unread tasks as an overlay on its taskbar button, and clears it at z
 test("hands a second launch to the running app instead of starting another", async () => {
   // The same data folder, so the same single-instance lock. The second process
   // must exit by itself, successfully, and leave the first one and its one window.
-  const second = spawn(packagedExecutable(APP), [`--user-data-dir=${USER_DATA}`], {
-    env: appEnv(),
-    stdio: "ignore",
-  });
+  // Never a packaged app without a sandbox, even one that only hands over to the running app.
+  // The run's temporary home, temporary folder and working folder, as the first launch had.
+  const place = launchPlace(process.env.CLAWTRATE_PACKAGED_PLACE!);
+  const second = spawn(
+    packagedExecutable(APP),
+    [`--user-data-dir=${USER_DATA}`, `--clawtrate-setup-sandbox=${SANDBOX}`],
+    {
+      cwd: place.cwd,
+      env: place.env,
+      stdio: "ignore",
+    },
+  );
   const exited = new Promise<number | null>((resolve) => second.once("exit", resolve));
   const code = await Promise.race([
     exited,

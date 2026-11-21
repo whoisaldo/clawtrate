@@ -101,10 +101,11 @@ export class ForwardOutput {
   connectFailed = false;
   private pending = "";
   private overlong = false;
-  private readonly localPort: number;
+  private readonly local: number | string;
 
-  constructor(localPort: number) {
-    this.localPort = localPort;
+  /** `local` is the forward's local port, or the path of its local socket. */
+  constructor(local: number | string) {
+    this.local = local;
   }
 
   get held(): number {
@@ -135,7 +136,7 @@ export class ForwardOutput {
   private read(line: string): void {
     this.facts |= lineFacts(line);
     const plain = line.replace(/\r$/, "");
-    if (forwardListening(plain, this.localPort)) this.listening = true;
+    if (forwardListening(plain, this.local)) this.listening = true;
     if (/^channel [0-9]+: open failed: administratively prohibited/.test(plain))
       this.refused = true;
     if (/^channel [0-9]+: open failed: connect failed/.test(plain)) this.connectFailed = true;
@@ -176,10 +177,11 @@ export function readProbeLines(stderr: string): ProbeLines {
 }
 
 /** `debug1: Local forwarding listening on 127.0.0.1 port <n>.` */
-export function forwardListening(line: string, port: number): boolean {
-  return (
-    line.replace(/\r$/, "") === `debug1: Local forwarding listening on 127.0.0.1 port ${port}.`
-  );
+export function forwardListening(line: string, local: number | string): boolean {
+  const plain = line.replace(/\r$/, "");
+  return typeof local === "number"
+    ? plain === `debug1: Local forwarding listening on 127.0.0.1 port ${local}.`
+    : plain === `debug1: Local forwarding listening on path ${local}.`;
 }
 
 /** The version `ssh -V` reports, for the clients the research ran. */

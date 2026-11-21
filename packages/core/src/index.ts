@@ -49,6 +49,7 @@ export * from "./owners.ts";
 export * from "./remote-bridge.ts";
 export { utf8Length } from "./encoding.ts";
 export * from "./scopes.ts";
+export * from "./setup.ts";
 export * from "./bridge.ts";
 export * from "./connect-errors.ts";
 export {
@@ -73,6 +74,11 @@ export {
   REQUESTED_SCOPES,
   SendTooLargeError,
   SESSION_PAGE_SIZE,
+  SETUP_ENDPOINT_CHANGED,
+  SETUP_PAIRING_GONE,
+  ROUTE_IDENTITY_UNREAD,
+  ROUTE_IDENTITY_CHANGED,
+  ROUTE_KEY,
   validateGatewayUrl,
   type ClientOptions,
   type ConnectOptions,

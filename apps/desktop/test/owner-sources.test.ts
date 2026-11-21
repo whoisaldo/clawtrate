@@ -14,11 +14,19 @@ import { scan, scanText } from "./owner-scan.ts";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 /** The engine, and the hosts that hold its bridge. */
-const SCANNED = ["packages/core/src", "apps/desktop/src/web-host", "apps/desktop/src/main"];
+const SCANNED = [
+  "packages/core/src",
+  "apps/desktop/src/web-host",
+  "apps/desktop/src/main",
+  // The SSH setup host and its route store, which the main process keeps for its whole life.
+  "apps/desktop/src/setup/remote.ts",
+  "apps/desktop/src/setup/routes.ts",
+];
 
 /** Collections kept outside the registry's fields: why each one is bounded. */
 const ALLOWED: Record<string, string> = {
   // Static: built once from constants, never grown.
+  "apps/desktop/src/setup/routes.ts:LABELS": "static, the four service labels a route records",
   "packages/core/src/memory.ts:ROOT_MEMORY": "static, two workspace filenames",
   "packages/core/src/approvals.ts:APPROVAL_KINDS": "static, three kinds",
   "packages/core/src/stop-words.ts:STOP_NOW": "static, the three ways of typing Stop now",

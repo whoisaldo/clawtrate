@@ -1,6 +1,11 @@
-import { initialState, type ClawtrateState, type ConnectionStatus } from "@clawtrate/core";
+import {
+  initialSetupState,
+  initialState,
+  type ClawtrateState,
+  type ConnectionStatus,
+} from "@clawtrate/core";
 import { describe, expect, it } from "vitest";
-import { screenFor } from "../src/screen.ts";
+import { followSetup, screenFor, setupUnderWay } from "../src/screen.ts";
 
 function state(status: ConnectionStatus, bots: number): ClawtrateState {
   return {
@@ -34,5 +39,22 @@ describe("screenFor (C2)", () => {
 
   it("shows the shell for a connected gateway with no bots, so its error or empty state is visible", () => {
     expect(screenFor(state("connected", 0))).toBe("shell");
+  });
+});
+
+describe("the setup screen and the host's setup", () => {
+  it("opens setup the host started while the first question showed, and keeps the person's choice otherwise", () => {
+    expect(setupUnderWay(undefined)).toBe(false);
+    expect(setupUnderWay(initialSetupState)).toBe(false);
+    const restoring = { ...initialSetupState, phase: "connecting" as const, step: 1 };
+    expect(setupUnderWay(restoring)).toBe(true);
+    // A restore at launch published after the first question showed: its screens open.
+    expect(followSetup("first", false, true)).toBe("here");
+    // The person's own screens stay, and nothing changes while setup goes on or ends.
+    expect(followSetup("another", false, true)).toBe("another");
+    expect(followSetup("advanced", false, true)).toBe("advanced");
+    expect(followSetup("first", true, true)).toBe("first");
+    expect(followSetup("here", true, false)).toBe("here");
+    expect(followSetup("first", true, false)).toBe("first");
   });
 });

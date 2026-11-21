@@ -8,7 +8,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_ID } from "../src/main/identity.ts";
 
-const recorded = vi.hoisted(() => ({ calls: [] as string[], packaged: true }));
+const recorded = vi.hoisted(() => ({
+  calls: [] as string[],
+  packaged: true,
+  /** The data folders a refused start under the test runner chose. */
+  userData: [] as string[],
+}));
 
 vi.mock("electron", () => {
   const { calls } = recorded;
@@ -45,6 +50,7 @@ vi.mock("electron", () => {
     getAppPath: () => "/app",
     getVersion: () => "1.0.0",
     getPath: () => dataDir,
+    setPath: (_name: string, path: string) => recorded.userData.push(path),
     whenReady: () => Promise.resolve(),
     on: () => app,
     requestSingleInstanceLock: () => true,
@@ -54,7 +60,8 @@ vi.mock("electron", () => {
   return {
     app,
     BrowserWindow,
-    dialog: {},
+    // A data folder the launch refuses shows this and quits: recorded, so the test says why.
+    dialog: { showErrorBox: (title: string) => calls.push(`showErrorBox ${title}`) },
     ipcMain: { handle() {}, on() {} },
     nativeImage: { createFromBitmap: () => ({}) },
     nativeTheme: { shouldUseDarkColors: false },
@@ -75,7 +82,7 @@ vi.mock("../src/host/runtime.ts", () => ({
   readDevConnection: () => null,
   startHostRuntime: () =>
     Promise.resolve({
-      client: { state: {}, store: { subscribe: () => () => {} }, stop() {} },
+      client: { state: {}, store: { subscribe: () => () => {} }, stop() {}, setSetup() {} },
       info: {},
       policy: {},
     }),
@@ -96,14 +103,29 @@ afterEach(() => {
   Object.defineProperty(process, "platform", platform);
   vi.unstubAllEnvs();
   rmSync(dataDir, { recursive: true, force: true });
+  for (const dir of recorded.userData.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 /** Runs the main process's startup as `os`, packaged or not, until it has created its window. */
 async function startUp(os: NodeJS.Platform, packaged: boolean): Promise<string[]> {
   Object.defineProperty(process, "platform", { ...platform, value: os });
   recorded.packaged = packaged;
-  await import("../src/main/index.ts");
-  await vi.waitFor(() => expect(recorded.calls).toContain("window"));
+  // The launch's own lines, so a refused data folder names its reason and the folder that failed.
+  const lines: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+    lines.push(args.map(String).join(" "));
+  });
+  try {
+    await import("../src/main/index.ts");
+    await vi.waitFor(() =>
+      expect(
+        recorded.calls,
+        `${os}: ${lines.filter((l) => l.startsWith("[setup]")).join("; ")}`,
+      ).toContain("window"),
+    );
+  } finally {
+    log.mockRestore();
+  }
   return [...recorded.calls];
 }
 

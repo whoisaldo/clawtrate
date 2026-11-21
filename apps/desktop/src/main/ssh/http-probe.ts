@@ -19,13 +19,13 @@ const STATUS_LINE = /^HTTP\/1\.[01] [1-5][0-9]{2} [\t\x20-\x7e\x80-\xff]*\r$/;
 const MAX_READ = 1024;
 
 /**
- * Connects to the forward's local port, sends one plain request, and reads
+ * Connects to the forward's local socket (a path) or port, sends one plain request, and reads
  * whether the far end answered with an HTTP status line. When the connection
  * closes without one, the forward's facts tell a refused forwarding and a
  * closed gateway port from no answer.
  */
 export function probeHttp(
-  localPort: number,
+  local: number | string,
   gatewayPort: number,
   channel: () => ChannelFacts,
   timeoutMs = 5000,
@@ -69,7 +69,8 @@ export function probeHttp(
     };
     const attempt = () => {
       if (settled) return;
-      const current = connect(localPort, "127.0.0.1");
+      const current =
+        typeof local === "number" ? connect(local, "127.0.0.1") : connect({ path: local });
       socket = current;
       let connected = false;
       current.on("connect", () => {
@@ -94,7 +95,7 @@ export function probeHttp(
         if (settled) return;
         // OpenSSH logs that it listens just before it binds the port: refused here, before any
         // connection was made, means not bound yet, so the probe tries again until its time is up.
-        if (!connected && error.code === "ECONNREFUSED") {
+        if (!connected && (error.code === "ECONNREFUSED" || error.code === "ENOENT")) {
           current.removeAllListeners("close");
           current.destroy();
           again = setTimeout(attempt, 50);

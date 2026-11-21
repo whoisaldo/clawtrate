@@ -1,4 +1,10 @@
-import type { ConnectionError, ConnectionState, DiscoveryState, HostInfo } from "@clawtrate/core";
+import type {
+  ConnectionError,
+  ConnectionState,
+  DiscoveryState,
+  HostInfo,
+  SetupState,
+} from "@clawtrate/core";
 import {
   useEffect,
   useRef,
@@ -13,7 +19,9 @@ import { useCommand } from "./bridge.tsx";
 import { copyText, selectContents, type CopyResult } from "./clipboard.ts";
 import { useForget } from "./forget.ts";
 import { gatewayLabel } from "./format.ts";
-import { CheckIcon, CopyIcon, EyeIcon } from "./icons.tsx";
+import { followSetup, setupUnderWay } from "./screen.ts";
+import { BackIcon, CheckIcon, CopyIcon, EyeIcon } from "./icons.tsx";
+import { SetupFlow, type SetupView } from "./setup/Setup.tsx";
 
 export const PRODUCT_NAME = "Clawtrate";
 export const SLOGAN = "Your OpenClaw agents, orchestrated.";
@@ -144,7 +152,14 @@ const SCOPE_WORDS: Record<string, string> = {
   "operator.read": "Read bots, tasks and conversations",
 };
 
-function PairingPanel({ connection }: { connection: ConnectionState }) {
+function PairingPanel({
+  connection,
+  name = null,
+}: {
+  connection: ConnectionState;
+  /** The SSH route's account, which the forward's local address must not stand in for. */
+  name?: string | null;
+}) {
   const send = useCommand();
   const { forget, failure } = useForget();
   const gatewayUrl = connection.gatewayUrl;
@@ -167,8 +182,8 @@ function PairingPanel({ connection }: { connection: ConnectionState }) {
     <section className="panel" aria-labelledby="pair-title">
       <h2 id="pair-title">Approve this device</h2>
       <p className="panel-lede">
-        {gatewayLabel(connection.gatewayUrl)} has not seen this device before. Approve it once on
-        the gateway's machine and {PRODUCT_NAME} connects by itself.
+        {name ?? gatewayLabel(connection.gatewayUrl)} has not seen this device before. Approve it
+        once on the gateway's machine and {PRODUCT_NAME} connects by itself.
       </p>
       {pairing.approveNote && <p className="approve-note">{pairing.approveNote}</p>}
       <CommandLine command={pairing.approveCommand} label="Copy approve command" />
@@ -512,12 +527,15 @@ export function ConnectScreen({
   connection,
   discovery,
   info,
+  setup,
   mismatch = null,
   inert = false,
 }: {
   connection: ConnectionState;
   discovery: DiscoveryState;
   info: HostInfo;
+  /** Setting up on the host's computer, where the host offers it (`info.setup`). */
+  setup?: SetupState | undefined;
   /** The latest protocol mismatch, kept while a retry repeats the handshake. */
   mismatch?: ConnectionError | null;
   /** Set while Settings covers the screen. */
@@ -527,10 +545,47 @@ export function ConnectScreen({
   const host = `${info.kind === "web" ? "Web preview" : "Desktop"} ${info.version}`;
   const loadingBots = connection.status === "connected" && discovery.status === "loading";
   const settingUp = loadingBots || connection.status === "connecting";
+  // The first question, when the host offers setup and no gateway is saved (docs/design/setup.md §3).
+  // A setup the host has under way (another window, or a reload) opens where it stands.
+  const underWay = setupUnderWay(setup);
+  const [view, setView] = useState<SetupView>(() => (underWay ? "here" : "first"));
+  // …and one the host starts after this screen showed the first question, the same.
+  const [wasUnderWay, setWasUnderWay] = useState(underWay);
+  if (underWay !== wasUnderWay) {
+    setWasUnderWay(underWay);
+    const next = followSetup(view, wasUnderWay, underWay);
+    if (next !== view) setView(next);
+  }
+  const setupOwns =
+    setup !== undefined &&
+    (setup.phase === "confirming" ||
+      setup.phase === "connecting" ||
+      setup.phase === "failed" ||
+      (setup.phase === "done" && connection.status !== "connected"));
+  const noGateway = connection.status === "idle" && connection.gatewayUrl === null;
+  const showSetup =
+    info.setup !== undefined &&
+    setup !== undefined &&
+    (setupOwns || (noGateway && view !== "advanced"));
+  // Advanced: the address-and-token form as it was, with Back to the first question.
+  const advancedBack =
+    info.setup !== undefined && view === "advanced" && noGateway ? () => setView("first") : null;
+  // Advanced replaces the setup screens on the same screen, so focus moves here: to the
+  // address field going in, to the question's title coming back. Not on launch.
+  const card = useRef<HTMLDivElement>(null);
+  const lastView = useRef(view);
+  useEffect(() => {
+    const from = lastView.current;
+    lastView.current = view;
+    if (from === view) return;
+    if (view === "advanced") card.current?.querySelector<HTMLElement>("input")?.focus();
+    else if (from === "advanced")
+      card.current?.querySelector<HTMLElement>("[data-s-title]")?.focus();
+  }, [view]);
   return (
     <main className="connect" inert={inert}>
       <div className="connect-drag" />
-      <div className="connect-card">
+      <div className="connect-card" ref={card}>
         {mismatch ? (
           <>
             <header className="connect-brand">
@@ -547,14 +602,39 @@ export function ConnectScreen({
             <header className="connect-brand">
               <img src={logoUrl} alt={PRODUCT_NAME} width={56} height={56} />
             </header>
-            <PairingPanel connection={connection} />
+            <PairingPanel
+              connection={connection}
+              name={setup?.route?.account ?? setup?.there?.account ?? null}
+            />
             <p className="connect-foot">
               Request {pairing.requestId.slice(0, 8)} · this device{" "}
               {(connection.deviceId ?? pairing.deviceId).slice(0, 8)} · {host}
             </p>
           </>
+        ) : showSetup ? (
+          <SetupFlow
+            view={view === "advanced" ? "here" : view}
+            onView={setView}
+            setup={setup!}
+            connection={connection}
+            info={info}
+          />
         ) : (
           <>
+            {advancedBack && (
+              <div className="s-top">
+                <button
+                  type="button"
+                  className="button"
+                  data-variant="quiet"
+                  data-size="sm"
+                  onClick={advancedBack}
+                >
+                  <BackIcon />
+                  Back
+                </button>
+              </div>
+            )}
             <header className="connect-brand">
               <img src={logoUrl} alt="" width={56} height={56} />
               <h1>{PRODUCT_NAME}</h1>

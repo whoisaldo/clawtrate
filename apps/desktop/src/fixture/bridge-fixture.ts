@@ -61,6 +61,7 @@ import { machineCommands, NO_MACHINE_PARAMS, type MachineParams } from "./machin
 import { FAILED_EVENT, LIVE_SCENES, liveCommand, liveScene, type LiveScene } from "./live.ts";
 import { isRailScene, RAIL_SCENES, railCommands, railScene } from "./rail.ts";
 import { ACTION_SCENES, actionScene, isActionScene } from "./actions.ts";
+import { isRouteState, isSetupState, setupCommand, setupInfo, SETUP_STATES } from "./setup.ts";
 import { checkInCommands, fixtureCheckIns, type CheckInParams } from "./check-ins.ts";
 import { memoryCommands } from "./memory.ts";
 import { fixtureUsage, NO_USAGE_PARAMS, usageCommand, type UsageParams } from "./usage.ts";
@@ -475,10 +476,12 @@ function answerStrings(
 
 export function createFixtureBridge(
   name: SceneName,
+  /** `setup`: the desktop's first screen and a state of setup (`setup.ts`), over the connect scene. */
   options: {
     desktopUpdates?: ClawtrateBridge["desktopUpdates"];
     files?: FileParams;
     accounts?: AccountParams;
+    setup?: string | null;
     routines?: RoutineParams;
     usage?: UsageParams;
     machines?: MachineParams;
@@ -506,7 +509,12 @@ export function createFixtureBridge(
   release(): void;
 } {
   const now = Date.now();
-  const { initial, steps } = scene(name, now);
+  const setupName = isSetupState(options.setup ?? null) ? options.setup! : null;
+  const { initial: sceneInitial, steps } = scene(
+    setupName && !isRouteState(setupName) ? "connect" : name,
+    now,
+  );
+  const initial = setupName ? { ...sceneInitial, setup: SETUP_STATES[setupName]! } : sceneInitial;
   // The Work pane's Files scenes add the disk task's file runs, and answer the file commands.
   const fileParams = options.files ?? { state: null, checkout: false, failFirstOpen: false };
   const fileAnswer = fileAnswers(now, fileParams);
@@ -633,6 +641,17 @@ export function createFixtureBridge(
     sent.push(command);
     if (live) return live;
     if (FILE_COMMANDS.has(command.type)) return fileAnswer(command);
+    if (
+      setupCommand(
+        command,
+        () => state,
+        set,
+        () => loaded(Date.now()),
+        (ms, run) => deferred(run, ms),
+        setupName === "found-protocol" ? "protocol" : "connected",
+      )
+    )
+      return;
     switch (command.type) {
       case "connect":
       case "connectDevGateway":
@@ -885,7 +904,11 @@ export function createFixtureBridge(
 
   return {
     desktopUpdates: options.desktopUpdates ?? noDesktopUpdates,
-    info: name === "access-pinned" ? { ...FIXTURE_INFO, readOnly: true } : FIXTURE_INFO,
+    info: setupName
+      ? setupInfo(FIXTURE_INFO, setupName)
+      : name === "access-pinned"
+        ? { ...FIXTURE_INFO, readOnly: true }
+        : FIXTURE_INFO,
     getState: () => state,
     subscribe(listener) {
       listeners.add(listener);

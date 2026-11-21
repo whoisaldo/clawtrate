@@ -35,7 +35,7 @@ const wellFormed = (lines: string[] = []) =>
   [
     `{"k":"begin","id":"${ID}"}`,
     `{"k":"uname","s":"${b64("Linux\n")}","m":"${b64("x86_64\n")}","n":"${b64("devbox\n")}"}`,
-    `{"k":"program","i":0}`,
+    `{"k":"program","i":0,"c":"${b64("1234567890 4096\n")}"}`,
     `{"k":"version","exit":0,"v":"${b64("OpenClaw 2026.10.6 (fe06181)")}"}`,
     `{"k":"status-default","exit":0,"v":"${b64(status_())}"}`,
     ...lines,
@@ -53,11 +53,14 @@ describe("the LOOK's output, parsed in memory", () => {
       facts: {
         system: { os: "Linux", machine: "x86_64", nodeName: "devbox" },
         program: "~/.openclaw/bin/openclaw",
+        programSum: "1234567890 4096",
         version: { year: 2026, month: 10, day: 6, build: "fe06181" },
         gateways: [
           {
             profile: "default",
             exit: 0,
+            portStatus: "busy",
+            rpcUrl: "ws://127.0.0.1:18789",
             service: { label: "LaunchAgent", loaded: true, running: true, pid: 4242 },
             configPath: "/srv/you/.openclaw/openclaw.json",
             port: 18789,
@@ -110,12 +113,12 @@ describe("the LOOK's output, parsed in memory", () => {
     ["a fact twice", wellFormed([`{"k":"program","i":0}`]), "malformed"],
     [
       "a place outside the list",
-      wellFormed().replace(`{"k":"program","i":0}`, `{"k":"program","i":9}`),
+      wellFormed().replace(`{"k":"program","i":0,`, `{"k":"program","i":9,`),
       "malformed",
     ],
     [
       "a place by path",
-      wellFormed().replace(`{"k":"program","i":0}`, `{"k":"program","i":"/tmp/x"}`),
+      wellFormed().replace(`{"k":"program","i":0,`, `{"k":"program","i":"/tmp/x",`),
       "malformed",
     ],
     ["output that isn't base64", wellFormed().replace(/"v":"[^"]+"/, `"v":"%%%"`), "malformed"],
@@ -165,14 +168,16 @@ describe("the LOOK's output, parsed in memory", () => {
     expect(gateway).toEqual({
       profile: "default",
       exit: 0,
+      portStatus: null,
+      rpcUrl: null,
       service: { label: "other", loaded: null, running: true, pid: null },
       configPath: null,
       port: null,
       bindMode: null,
       version: null,
       rpcOk: null,
-      // One listener it can't read makes the list unknown, not shorter.
-      listenerPids: [],
+      // One listener it can't read makes the list unknown: neither shorter nor empty.
+      listenerPids: null,
     });
     expect(
       parseGatewayStatus("default", 0, JSON.stringify({ gateway: { port: 80 } }))?.port,
@@ -362,16 +367,23 @@ describe("the gateway service on a port", () => {
 
   it("can't tell from a partial list of listeners: past sixteen, or one without a process", () => {
     const sixteen = Array.from({ length: 16 }, () => ({ pid: 4242 }));
-    expect(serviceOnPort(facts({ port: { listeners: sixteen } }), 18789)).toMatchObject({
+    expect(
+      serviceOnPort(facts({ port: { status: "busy", listeners: sixteen } }), 18789),
+    ).toMatchObject({
       ok: true,
       holdsPort: true,
     });
     // The seventeenth listener is another process.
     expect(
-      serviceOnPort(facts({ port: { listeners: [...sixteen, { pid: 5151 }] } }), 18789),
+      serviceOnPort(
+        facts({ port: { status: "busy", listeners: [...sixteen, { pid: 5151 }] } }),
+        18789,
+      ),
     ).toEqual({ ok: false, reason: "cant-tell" });
     // A listener without a process: the service's own beside it proves nothing.
-    expect(serviceOnPort(facts({ port: { listeners: [{ pid: 4242 }, {}] } }), 18789)).toEqual({
+    expect(
+      serviceOnPort(facts({ port: { status: "busy", listeners: [{ pid: 4242 }, {}] } }), 18789),
+    ).toEqual({
       ok: false,
       reason: "cant-tell",
     });

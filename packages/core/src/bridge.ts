@@ -24,6 +24,7 @@ import {
 import { MAX_TASK_LABEL_CHARS, type ArchivedList, type ArchiveResult } from "./task-actions.ts";
 import type { ClawtrateState, TranscriptItem } from "./types.ts";
 import type { MissingStep } from "./accounts.ts";
+import { MAX_DESTINATION_CHARS, type SetupHost, type SetupOffer } from "./setup.ts";
 import {
   CHECKIN_EVERY,
   MAX_CHECKIN_EVERY_CHARS,
@@ -76,6 +77,19 @@ export type BridgeCommand =
   | { type: "connectDevGateway" }
   /** Forget the gateway at this address, the one the viewer shows; refused if another is selected. */
   | { type: "disconnect"; gatewayUrl: string }
+  /** Setting up on the host's computer (`setup.ts`): look there, stop, pair with what was found, start over. */
+  | { type: "setupLook" }
+  | { type: "setupCancel" }
+  | { type: "setupConnect" }
+  | { type: "setupReset" }
+  /** Another computer (`setup.ts`): look there, trust or replace its key, start OpenClaw there. */
+  | { type: "setupThere"; destination: string }
+  | { type: "setupTrustKey" }
+  | { type: "setupReplaceKey" }
+  | { type: "setupStart" }
+  /** The SSH route: restore its forward now, or remove it (each confirmed by the host). */
+  | { type: "setupRetryRoute" }
+  | { type: "setupRemoveRoute" }
   /** Close the connection and keep the gateway and the pairing, until `retry` reconnects. */
   | { type: "suspend" }
   | { type: "retry" }
@@ -481,6 +495,12 @@ export type HostInfo = {
    * more access and refuses every command that writes.
    */
   readOnly?: boolean;
+  /**
+   * Set when the host offers setup on its own computer (docs/design/setup.md):
+   * the first screen asks where OpenClaw runs. Absent on a host that keeps the
+   * address-and-token form as its first screen, as the web preview does by default.
+   */
+  setup?: SetupOffer;
 };
 
 /** Renderer-side view of the bridge, implemented over IPC or a WebSocket. */
@@ -1040,7 +1060,25 @@ export function parseBridgeCommand(value: unknown): BridgeCommand {
     case "connectDevGateway":
     case "suspend":
     case "retry":
+    case "setupLook":
+    case "setupCancel":
+    case "setupConnect":
+    case "setupReset":
+    case "setupTrustKey":
+    case "setupReplaceKey":
+    case "setupStart":
+    case "setupRetryRoute":
+    case "setupRemoveRoute":
       return { type: command.type };
+    case "setupThere": {
+      // Bounded here; the host validates it against the destination pattern.
+      if (
+        typeof command.destination !== "string" ||
+        command.destination.length > MAX_DESTINATION_CHARS
+      )
+        throw new Error("That isn't an SSH host or alias Clawtrate can use.");
+      return { type: "setupThere", destination: command.destination };
+    }
     case "sendMessage": {
       const ids = command.attachmentIds ?? [];
       if (
@@ -1397,6 +1435,8 @@ export type BridgePolicy = {
   maxResultChars?: number;
   /** Tasks one viewer may hold open: `MAX_VIEWER_OPEN_TASKS` unless the host sets fewer. */
   maxOpenTasks?: number;
+  /** Setting up on the host's own computer, where the host offers it. */
+  setup?: SetupHost;
 };
 
 /**
@@ -1501,6 +1541,43 @@ class ViewerSession implements BridgeSession {
         return client.connect(policy.devGateway);
       case "disconnect":
         return client.disconnect(command.gatewayUrl);
+      case "setupLook":
+      case "setupCancel":
+      case "setupConnect":
+      case "setupReset": {
+        const setup = policy.setup;
+        if (!setup) throw new Error("This host doesn't set up OpenClaw on its computer.");
+        if (command.type === "setupLook") return setup.look();
+        if (command.type === "setupConnect") return setup.connect();
+        if (command.type === "setupCancel") return setup.cancel();
+        return setup.reset();
+      }
+      case "setupThere":
+      case "setupTrustKey":
+      case "setupReplaceKey":
+      case "setupStart":
+      case "setupRetryRoute":
+      case "setupRemoveRoute": {
+        const setup = policy.setup;
+        const missing = () => {
+          throw new Error("This host doesn't reach another computer over SSH.");
+        };
+        if (!setup) return missing();
+        switch (command.type) {
+          case "setupThere":
+            return setup.there ? setup.there(command.destination) : missing();
+          case "setupTrustKey":
+            return setup.trustKey ? setup.trustKey() : missing();
+          case "setupReplaceKey":
+            return setup.replaceKey ? setup.replaceKey() : missing();
+          case "setupStart":
+            return setup.start ? setup.start() : missing();
+          case "setupRetryRoute":
+            return setup.retryRoute ? setup.retryRoute() : missing();
+          default:
+            return setup.removeRoute ? setup.removeRoute() : missing();
+        }
+      }
       case "suspend":
         return client.suspend();
       case "retry":
