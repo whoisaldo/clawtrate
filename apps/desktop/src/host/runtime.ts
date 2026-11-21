@@ -128,6 +128,12 @@ export async function startHostRuntime(options: {
    * alone, never asks for more access, and tells the interface so.
    */
   readOnly?: boolean;
+  /**
+   * Reopen the gateway the data folder remembers (the default). A development
+   * build, an automated run and the web host's setup look pass false: they
+   * never resume a saved gateway, whatever its address.
+   */
+  resume?: boolean;
 }): Promise<HostRuntime> {
   if (options.devOnly && !options.devGateway) {
     throw new Error(
@@ -170,7 +176,7 @@ export async function startHostRuntime(options: {
     const saved = await client.savedSettings();
     if (saved && saved.url !== devOnly.url) throw new SavedGatewayRefusedError(saved.url);
   }
-  await client.start();
+  await client.start({ resume: options.resume !== false });
   if (options.autoConnectDev && devGateway && client.state.connection.status === "idle") {
     await client.connect(devGateway);
   }

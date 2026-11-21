@@ -1,6 +1,12 @@
-import { initialState, type ClawtrateState, type ConnectionStatus } from "@clawtrate/core";
+import {
+  initialSetupState,
+  initialState,
+  type ClawtrateState,
+  type ConnectionStatus,
+  type HostInfo,
+} from "@clawtrate/core";
 import { describe, expect, it } from "vitest";
-import { screenFor } from "../src/screen.ts";
+import { screenFor, setupHolds } from "../src/screen.ts";
 
 function state(status: ConnectionStatus, bots: number): ClawtrateState {
   return {
@@ -34,5 +40,34 @@ describe("screenFor (C2)", () => {
 
   it("shows the shell for a connected gateway with no bots, so its error or empty state is visible", () => {
     expect(screenFor(state("connected", 0))).toBe("shell");
+  });
+});
+
+describe("setupHolds", () => {
+  const info = {
+    kind: "desktop",
+    version: "test",
+    devGateway: null,
+    setup: { look: true, pair: true, platform: "darwin" },
+  } as HostInfo;
+  const failed = (kind: "bots" | "cleanup" | "changed") => ({
+    ...initialSetupState,
+    phase: "failed" as const,
+    failure: { kind, exitCode: null, port: null, reason: null },
+  });
+
+  it("F-492: a cleanup that failed keeps setup on screen while its bots finish loading", () => {
+    // Back's cleanup failed, so setup's connection is still up: its bots loading must not
+    // open the app over the failure that asks for Back.
+    const loaded = state("connected", 4);
+    expect(screenFor(loaded)).toBe("shell");
+    expect(setupHolds(info, failed("cleanup"))).toBe(true);
+    expect(setupHolds(info, failed("bots"))).toBe(true);
+    expect(setupHolds(info, { ...initialSetupState, phase: "connecting" })).toBe(true);
+    // Any other failure, a host without setup, or no setup state: the state decides.
+    expect(setupHolds(info, failed("changed"))).toBe(false);
+    const { setup: _offered, ...withoutSetup } = info;
+    expect(setupHolds(withoutSetup, failed("cleanup"))).toBe(false);
+    expect(setupHolds(info, undefined)).toBe(false);
   });
 });

@@ -23,7 +23,7 @@ import { pathToFileURL } from "node:url";
 import { devGateway } from "../e2e/global-setup.ts";
 import { openInstance } from "../tools/dev-gateway/src/cli.ts";
 import { provenEndpoint } from "../tools/dev-gateway/src/endpoint.ts";
-import { parseJsonOutput } from "../tools/dev-gateway/src/env.ts";
+import { gatedSpawn, parseJsonOutput } from "../tools/dev-gateway/src/env.ts";
 import { runDirFor } from "../tools/dev-gateway/src/instance.ts";
 import { fuseMismatches } from "../apps/desktop/packaging/fuse-check.ts";
 import { newerCopy, packagedManifest } from "../apps/desktop/packaging/newer-copy.ts";
@@ -31,11 +31,16 @@ import { parseVersion } from "../apps/desktop/src/main/update/version.ts";
 import { macSigningRequested, windowsSigningRequested } from "../apps/desktop/packaging/signing.ts";
 import { APP_ID } from "../apps/desktop/src/main/identity.ts";
 import { recordSuccessor } from "../e2e/run-record.ts";
-import { gatedSpawn } from "../tools/dev-gateway/src/env.ts";
 import { processIdentity } from "../tools/dev-gateway/src/state-guard.ts";
-import { appEnv, debuggingPort } from "./desktop-driver.ts";
+import { debuggingPort } from "./desktop-driver.ts";
 import { quitWithin } from "./quit.ts";
-import { packagedExecutable, processesUsing } from "./global-setup.ts";
+import {
+  CHECKOUT,
+  launchArgs,
+  launchPlace,
+  packagedExecutable,
+  processesUsing,
+} from "./global-setup.ts";
 import {
   integrityLevels,
   mainWindowTitle,
@@ -50,6 +55,7 @@ const APP = process.env.CLAWTRATE_PACKAGED_APP!;
 const USER_DATA = process.env.CLAWTRATE_PACKAGED_USER_DATA!;
 const APP_PID = Number(process.env.CLAWTRATE_PACKAGED_PID);
 const APP_LOG = process.env.CLAWTRATE_PACKAGED_LOG ?? "";
+const SANDBOX = process.env.CLAWTRATE_PACKAGED_SANDBOX!;
 const RECORD = process.env.CLAWTRATE_PACKAGED_RECORD ?? "";
 /** A made-up key for the scripted API-key sign-in: its account is `acme:packaged`. */
 const TYPED_KEY = "clawtrate-dev-key.acme.packaged";
@@ -134,6 +140,9 @@ test("opens its window from the packaged app on the connect screen", async () =>
   expect(decodeURI(page.url())).toBe(bundled);
   await expect(page).toHaveTitle("Clawtrate");
   await expect(page.getByRole("heading", { name: "Clawtrate" })).toBeVisible();
+  // The first screen asks where OpenClaw runs; the address-and-token form is under Advanced.
+  await expect(page.getByRole("heading", { name: "Where does OpenClaw run?" })).toBeVisible();
+  await page.getByRole("button", { name: "Advanced" }).click();
   await expect(page.getByPlaceholder("Gateway address")).toBeVisible();
   await expect(page.getByRole("button", { name: "Connect" })).toBeVisible();
   // This checks the packaged build capability before a verified offer exists.
@@ -193,6 +202,28 @@ test("opens its window from the packaged app on the connect screen", async () =>
   ]);
   expect(page_.csp).toContain("default-src 'self'");
   expect(page_.csp).toContain("script-src 'self'");
+});
+
+test("looks on this computer only in the sandbox the launch check gave it", async () => {
+  await page.getByRole("button", { name: "Back" }).click();
+  await page
+    .getByRole("list", { name: "Where does OpenClaw run?" })
+    .getByRole("button", { name: /This computer/ })
+    .click();
+  if (WINDOWS) {
+    await expect(page.getByRole("heading", { name: "Use Advanced on Windows" })).toBeVisible();
+  } else {
+    // The run's own instance, by its profile: the only one the sandbox lets the look see.
+    await expect(page.getByRole("heading", { name: "OpenClaw is running" })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("setup-found").locator("dl > div").nth(1)).toHaveText(
+      `Profileclawtrate-dev-${INSTANCE}`,
+    );
+  }
+  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: "Advanced" }).click();
+  await expect(page.getByPlaceholder("Gateway address")).toBeVisible();
 });
 
 test("starts with the update tracks compiled into the packaged app", async () => {
@@ -276,10 +307,18 @@ test("shows unread tasks as an overlay on its taskbar button, and clears it at z
 test("hands a second launch to the running app instead of starting another", async () => {
   // The same data folder, so the same single-instance lock. The second process
   // must exit by itself, successfully, and leave the first one and its one window.
-  const second = spawn(packagedExecutable(APP), [`--user-data-dir=${USER_DATA}`], {
-    env: appEnv(),
-    stdio: "ignore",
-  });
+  // Never a packaged app without a sandbox, even one that only hands over to the running app.
+  // The run's temporary home, temporary folder and working folder, as the first launch had.
+  const place = launchPlace(process.env.CLAWTRATE_PACKAGED_PLACE!);
+  const second = spawn(
+    packagedExecutable(APP),
+    [`--user-data-dir=${USER_DATA}`, `--clawtrate-setup-sandbox=${SANDBOX}`],
+    {
+      cwd: place.cwd,
+      env: place.env,
+      stdio: "ignore",
+    },
+  );
   const exited = new Promise<number | null>((resolve) => second.once("exit", resolve));
   const code = await Promise.race([
     exited,
@@ -341,8 +380,7 @@ test("keeps the fuses it was packaged with", async () => {
   expect(await fuseMismatches(packagedExecutable(APP), process.platform)).toEqual([]);
 });
 
-test("pairs with its own development gateway instance and shows the seeded bots", async () => {
-  test.skip(WINDOWS, NO_GATEWAY);
+function runEndpoint() {
   expect(INSTANCE).toMatch(/^e2e-[0-9a-f]{8}$/);
   const endpoint = provenEndpoint({
     instance: INSTANCE,
@@ -352,6 +390,12 @@ test("pairs with its own development gateway instance and shows the seeded bots"
   });
   if ("refusal" in endpoint) throw new Error(endpoint.refusal);
   expect(endpoint.url).toMatch(/^ws:\/\/127\.0\.0\.1:(19[2-9]\d\d)$/);
+  return endpoint;
+}
+
+test("pairs with its own development gateway instance and shows the seeded bots", async () => {
+  test.skip(WINDOWS, NO_GATEWAY);
+  const endpoint = runEndpoint();
 
   await page.getByPlaceholder("Gateway address").fill(endpoint.url);
   await page.getByPlaceholder("Gateway token, for pairing").fill(endpoint.token);
@@ -515,7 +559,8 @@ test("opens with the same pairing and tasks after a newer build takes its place"
   const running = packagedManifest(APP);
   const [major, minor, patch] = parseVersion(running.version as string)!;
   const newer = `${major}.${minor}.${patch + 1}`;
-  const run = dirname(USER_DATA);
+  const run = process.env.CLAWTRATE_PACKAGED_PLACE!;
+  const place = launchPlace(run);
   const updated = join(run, "updated", "Clawtrate.app");
   mkdirSync(dirname(updated));
   await newerCopy(APP, updated, newer, join(run, "newer-scratch"));
@@ -566,8 +611,8 @@ test("opens with the same pairing and tasks after a newer build takes its place"
   const gated = gatedSpawn(
     spawn,
     packagedExecutable(updated),
-    [`--user-data-dir=${USER_DATA}`, "--remote-debugging-port=0"],
-    { env: appEnv(), stdio: ["ignore", logFd, logFd] },
+    launchArgs(USER_DATA, SANDBOX, CHECKOUT),
+    { cwd: place.cwd, env: place.env, stdio: ["ignore", logFd, logFd] },
   );
   const next = gated.child;
   // A shell that cannot start emits `error` and may never emit `exit`: either ends the wait.
@@ -602,7 +647,14 @@ test("opens with the same pairing and tasks after a newer build takes its place"
       .toBeGreaterThan(0);
     const view = second.contexts().flatMap((context) => context.pages())[0]!;
 
-    // Straight back to the gateway, with no address to type and no device to approve.
+    // The sandbox requires an explicit connection. Check the saved settings before Connect
+    // can write them, then use the saved pairing with only this run's proven address.
+    await expect(view.getByRole("heading", { name: "Where does OpenClaw run?" })).toBeVisible();
+    expect(state().connection).toBe(before.connection);
+    await view.getByRole("button", { name: "Advanced" }).click();
+    await view.getByPlaceholder("Gateway address").fill(runEndpoint().url);
+    await expect(view.getByPlaceholder("Gateway token, for pairing")).toHaveValue("");
+    await view.getByRole("button", { name: "Connect" }).click();
     const bots = view.getByTestId("bot");
     await expect(bots).toHaveCount(4, { timeout: 30_000 });
     await expect(view.getByPlaceholder("Gateway address")).toHaveCount(0);

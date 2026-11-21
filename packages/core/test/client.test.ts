@@ -65,8 +65,8 @@ describe("requested scopes (B1)", () => {
     const { client, storage } = await connected(gateway);
     expect(JSON.parse(storage.data.get(tokenKey(URL_A))!)).toEqual({
       token: "issued-token",
-      grantedScopes: ["operator.read", "operator.write"],
-      // Granted at pairing is not the same as meant to hold: the client still holds read only.
+      // A grant wider than the request is stored as the request: the client holds read only.
+      grantedScopes: ["operator.read"],
       heldScopes: ["operator.read"],
     });
     gateway.dropAll();
