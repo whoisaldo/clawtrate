@@ -9,7 +9,10 @@
 //                      profile on the gateway host, allows it only tab
 //                      actions, blocks it while a person holds control, and
 //                      keeps every other agent out of the bots' profiles
-//   after_tool_call    ends the record of a running bot call
+//   after_tool_call    ends the record of a running bot call (recorded from
+//                      the start of its before_tool_call check)
+//   agent_end          ends the records of a run's calls, also one whose
+//                      after_tool_call never came
 //   gateway methods    clawtrate-computer.tabs, .view.open, .view.renew,
 //                      .control.take, .control.release, .input
 //                      (operator.write, session access with the browser tool)
@@ -23,6 +26,7 @@
 // session's access is revoked, or when the plugin stops.
 
 import { randomBytes, randomUUID } from "node:crypto";
+import { developmentInstanceProblem } from "./lib/development.js";
 import {
   BOT_ACTIONS,
   DEFAULT_IMPORT_PROFILE,
@@ -83,6 +87,15 @@ const TEXT_LIMIT = 2000;
 
 /** How long a bot's browser call waits for the plugin to start watching its browser. */
 const WATCH_WAIT_MS = 2000;
+/**
+ * How long a bot call may go without reporting its end before the plugin no
+ * longer says the bot is acting: a take then says it cannot confirm.
+ */
+const CALL_CONFIRM_MS = 120_000;
+/** Calls whose end arrived, remembered so a late pre-call check records nothing. */
+const MAX_ENDED_CALLS = 256;
+/** Bot runs whose end arrived, remembered so a late pre-call check of theirs records nothing. */
+const MAX_ENDED_RUNS = 64;
 
 /**
  * What a granted take guarantees, exactly, in the answer and on the plugin's
@@ -98,9 +111,22 @@ export const GRANT_GUARANTEE = Object.freeze([
 /** Why a take was refused as busy: the event's reason and the answer's words. */
 const UNRESOLVED = {
   calls: ["bot-still-acting", "the bot is still acting in this browser"],
+  unconfirmed: [
+    "bot-calls-unconfirmed",
+    "a browser call of the bot has not reported that it ended, so whether the bot is still acting cannot be confirmed",
+  ],
   loading: ["browser-not-quiet", "the bot's browser is still loading a page"],
   download: ["download-in-progress", "a download in the bot's browser is still in progress"],
   closed: ["browser-not-watched", "the plugin cannot see what the bot's browser is doing"],
+  // The proof failed with no load or download reported: nothing says the browser is busy.
+  unproved: [
+    "browser-not-watched",
+    "the plugin could not confirm that the bot's browser has settled",
+  ],
+  unwatched: [
+    "browser-not-watched",
+    "a tab of the bot's browser does not answer the plugin, so whether it has settled cannot be seen",
+  ],
 };
 
 /** Thrown inside a sequence of browser commands when the caller's access has gone. */
@@ -112,8 +138,15 @@ export const BLOCKED_WHILE_HELD =
 
 export function newState() {
   return {
-    /** runId + toolCallId -> { agentId, profile } for each bot browser call running now */
+    /**
+     * runId + toolCallId -> { agentId, profile, runId, startedAt } for each bot
+     * browser call from its pre-call check until its end, its run's end or its abort
+     */
     inflight: new Map(),
+    /** runId + toolCallId of calls whose end arrived, at most MAX_ENDED_CALLS, oldest first */
+    endedCalls: new Set(),
+    /** agentId + runId of bot runs whose end arrived, at most MAX_ENDED_RUNS, oldest first */
+    endedRuns: new Set(),
     /** profile + targetId -> lease */
     leases: new Map(),
     /** streamId -> stream */
@@ -229,6 +262,7 @@ export function createComputer(api, options = {}) {
   const renewTimeoutMs = options.renewTimeoutMs ?? config.renewTimeoutMs;
   const quietWindowMs = options.quietWindowMs ?? QUIET_WINDOW_MS;
   const quietTimeoutMs = options.quietTimeoutMs ?? QUIET_TIMEOUT_MS;
+  const callConfirmMs = options.callConfirmMs ?? CALL_CONFIRM_MS;
   const logger = api.logger ?? {};
   const warn = (message) => logger.warn?.(`${PLUGIN_ID}: ${message}`);
   const registration = Symbol("registration");
@@ -273,7 +307,17 @@ export function createComputer(api, options = {}) {
   ) {
     const known = state.watches.get(bot.profile);
     if (known?.watch && !known.watch.closed) return Promise.resolve(known.watch);
-    if (known?.pending) return known.pending;
+    // A watch already being set up is waited for no longer than `ms` either.
+    const pending = known?.pending ?? startWatch(bot, allow);
+    let timer;
+    return Promise.race([
+      pending,
+      new Promise((resolve) => (timer = unref(setTimeout(() => resolve(null), ms)))),
+    ]).finally(() => clearTimeout(timer));
+  }
+
+  /** Set up the plugin's watch of a bot's browser; resolves with it, or null. */
+  function startWatch(bot, allow) {
     const entry = { registration, watch: null, pending: null };
     // Set up on the opener's behalf: each setup command only while `allow` holds.
     const carried = (browserUrl) => {
@@ -307,11 +351,7 @@ export function createComputer(api, options = {}) {
       })
       .finally(() => (entry.pending = null));
     state.watches.set(bot.profile, entry);
-    let timer;
-    return Promise.race([
-      entry.pending,
-      new Promise((resolve) => (timer = unref(setTimeout(() => resolve(null), ms)))),
-    ]).finally(() => clearTimeout(timer));
+    return entry.pending;
   }
 
   const emitControl = (lease, eventState, reason) =>
@@ -326,6 +366,11 @@ export function createComputer(api, options = {}) {
     });
   const runningCalls = (profile) =>
     [...state.inflight.values()].filter((call) => call.profile === profile).length;
+  /** Whether a call on the profile reported its start within `callConfirmMs`. */
+  const confirmedCalls = (profile) =>
+    [...state.inflight.values()].some(
+      (call) => call.profile === profile && Date.now() - call.startedAt < callConfirmMs,
+    );
   const leaseOnProfile = (profile) =>
     [...state.leases.values()].some((lease) => lease.profile === profile);
 
@@ -437,7 +482,8 @@ export function createComputer(api, options = {}) {
       }
     } catch (error) {
       if (error === STALE) return "stale";
-      return cdp.closed ? "lost" : false;
+      // A command not answered: a load or download seen says so; with none, the proof failed.
+      return cdp.closed ? "lost" : (watch.unresolved() ?? "unproved");
     }
   }
 
@@ -870,6 +916,8 @@ export function createComputer(api, options = {}) {
       opts.respond(true, {
         state: "busy",
         reason,
+        // The same code as the control event's reason; `reason` is the sentence.
+        cause,
         runningCalls: running,
         generation: lease.generation,
       });
@@ -886,7 +934,11 @@ export function createComputer(api, options = {}) {
       await endLease(lease, "revoked", "access-revoked");
       accessEnded();
     }
-    if (!drained) return busy(...UNRESOLVED.calls);
+    // A call that has not reported its end for `callConfirmMs` may have ended
+    // without the gateway saying so: the take says it cannot confirm.
+    if (!drained) {
+      return busy(...(confirmedCalls(bot.profile) ? UNRESOLVED.calls : UNRESOLVED.unconfirmed));
+    }
     // The lease's own connection to the tab: input goes through it, and the
     // lease ends when it closes (the tab or the browser went away).
     try {
@@ -935,6 +987,9 @@ export function createComputer(api, options = {}) {
       accessEnded();
     }
     if (!watch) return busy(...UNRESOLVED.closed);
+    // A tab that did not answer the watch before is asked again: one slow
+    // answer never leaves a take refused for good.
+    await watch.recheck();
     const quiet = await quiesce(lease, current, watch);
     const seen = lease.activity;
     if (lease.ending)
@@ -962,7 +1017,10 @@ export function createComputer(api, options = {}) {
     // The grant is the last thing that happens: anything seen up to this
     // instant refuses it (nothing has awaited since the quiet step's last look).
     if (!stillQuiet(lease, watch, seen)) {
-      const why = watch.closed ? "closed" : (watch.unresolved() ?? "loading");
+      // A navigation seen in the tab is loading; a connection gone since is no proof at all.
+      const why = watch.closed
+        ? "closed"
+        : (watch.unresolved() ?? (lease.cdp.closed ? "unproved" : "loading"));
       return busy(...(UNRESOLVED[why] ?? UNRESOLVED.loading));
     }
     lease.state = "granted";
@@ -1255,6 +1313,15 @@ export function createComputer(api, options = {}) {
             "A browser call without a run and call id cannot be tracked, so it is refused.",
         };
       }
+      // Recorded before anything is awaited: however the gateway's hooks are
+      // ordered or timed, the call is never running unrecorded. A refusal
+      // below takes the record back.
+      const key = callKey(runId, toolCallId);
+      const record = trackCall(bot, runId, toolCallId, ctx);
+      const refused = (answer) => {
+        if (record) untrackCall(key, record);
+        return answer;
+      };
       const refusal = () => {
         if (leaseOnProfile(bot.profile)) return { block: true, blockReason: BLOCKED_WHILE_HELD };
         if (browserConfigProblems(currentConfig(), config, env).length > 0) {
@@ -1266,53 +1333,85 @@ export function createComputer(api, options = {}) {
         return null;
       };
       const early = refusal();
-      if (early) return early;
+      if (early) return refused(early);
       // The plugin watches the bot's browser before the call runs, so that a
       // later take can see a download or a load the call starts. A browser not
       // running yet is watched once the call has started it (after_tool_call).
       return ensureWatch(bot, WATCH_WAIT_MS).then(() => {
         // The hold and the config can have changed while it waited.
         const late = refusal();
-        if (late) return late;
-        return admitCall(bot, runId, toolCallId, ctx, {
-          ...params,
-          action,
-          profile: bot.profile,
-          target: "host",
-        });
+        if (late) return refused(late);
+        // target "host": never a node or sandbox browser; when host control is
+        // not allowed for the session, the browser tool refuses the call.
+        return { params: { ...params, action, profile: bot.profile, target: "host" } };
       });
     },
     { matcher: ["browser"], priority: 1000 },
   );
 
-  /** Track an admitted bot call until its result, and return its pinned parameters. */
-  function admitCall(bot, runId, toolCallId, ctx, pinned) {
-    {
-      const key = callKey(runId, toolCallId);
-      const record = { agentId: bot.agentId, profile: bot.profile, unbind: () => {} };
-      state.inflight.set(key, record);
-      // A cancelled call no longer counts as running (a take still brings the
-      // tab to rest, see quiesce). The listener goes when the call completes,
-      // so a long run does not gather one per call on its signal.
-      const signal = ctx?.abortSignal;
-      if (isSignal(signal)) {
-        const forget = () => {
-          if (state.inflight.get(key) === record) {
-            state.inflight.delete(key);
-            changed();
-          }
-        };
-        if (signal.aborted) forget();
-        else {
-          signal.addEventListener("abort", forget, { once: true });
-          record.unbind = () => signal.removeEventListener("abort", forget);
-        }
-      }
-      // target "host": never a node or sandbox browser; when host control is
-      // not allowed for the session, the browser tool refuses the call.
-      return { params: pinned };
+  /**
+   * Record a bot call as running, from its pre-call check. It stops counting
+   * when its end arrives (after_tool_call), when its run ends (agent_end) or
+   * when it is cancelled; one whose end already arrived is not recorded.
+   */
+  function trackCall(bot, runId, toolCallId, ctx) {
+    const key = callKey(runId, toolCallId);
+    if (state.endedCalls.has(key) || state.endedRuns.has(callKey(bot.agentId, runId))) return null;
+    const record = {
+      agentId: bot.agentId,
+      profile: bot.profile,
+      runId,
+      startedAt: Date.now(),
+      unbind: () => {},
+    };
+    // A cancelled call no longer counts as running (a take still brings the
+    // tab to rest, see quiesce). The listener goes when the call completes,
+    // so a long run does not gather one per call on its signal.
+    const signal = ctx?.abortSignal;
+    if (isSignal(signal)) {
+      if (signal.aborted) return null;
+      const forget = () => untrackCall(key, record);
+      signal.addEventListener("abort", forget, { once: true });
+      record.unbind = () => signal.removeEventListener("abort", forget);
+    }
+    state.inflight.set(key, record);
+    changed();
+    return record;
+  }
+
+  function untrackCall(key, record) {
+    record.unbind();
+    if (state.inflight.get(key) !== record) return;
+    state.inflight.delete(key);
+    changed();
+  }
+
+  /** The call's end arrived: it is not running, and a late pre-call check records nothing. */
+  function callEnded(key) {
+    state.endedCalls.delete(key);
+    state.endedCalls.add(key);
+    while (state.endedCalls.size > MAX_ENDED_CALLS) {
+      state.endedCalls.delete(state.endedCalls.values().next().value);
     }
   }
+
+  // A run's end ends its calls, also one whose own end never arrived, and one whose pre-call
+  // check comes after it.
+  api.on("agent_end", (event, ctx) => {
+    const runId = toolString(ctx?.runId) ?? toolString(event?.runId);
+    if (!runId || !bots.has(ctx?.agentId)) return;
+    const run = callKey(ctx.agentId, runId);
+    state.endedRuns.delete(run);
+    state.endedRuns.add(run);
+    while (state.endedRuns.size > MAX_ENDED_RUNS) {
+      state.endedRuns.delete(state.endedRuns.values().next().value);
+    }
+    for (const [key, record] of [...state.inflight]) {
+      if (record.runId !== runId || record.agentId !== ctx.agentId) continue;
+      callEnded(key);
+      untrackCall(key, record);
+    }
+  });
 
   api.on(
     "after_tool_call",
@@ -1323,11 +1422,11 @@ export function createComputer(api, options = {}) {
       if (!runId || !toolCallId) return;
       const key = callKey(runId, toolCallId);
       const record = state.inflight.get(key);
-      // Only the matching record, and only for the same agent.
-      if (record && record.agentId === ctx?.agentId) {
-        state.inflight.delete(key);
-        record.unbind();
-        changed();
+      // Only a configured bot's own call: its end, in whatever order it comes.
+      if (!bots.has(ctx?.agentId) || (record && record.agentId !== ctx?.agentId)) return;
+      callEnded(key);
+      if (record) {
+        untrackCall(key, record);
         // A call can have started the browser: watch it from now on.
         const bot = bots.get(record.agentId);
         if (bot) void ensureWatch(bot);
@@ -1382,6 +1481,14 @@ export default {
   description:
     "A browser of its own for each configured bot, a live view of it, and a person's takeover and hand-back.",
   register(api) {
+    // Development gateways only, until the plugin is ready for others (README, issue #29): on
+    // any other gateway it registers no method, route, hook or service, and says why.
+    const problem = developmentInstanceProblem();
+    if (problem) {
+      const say = api.logger?.warn?.bind(api.logger) ?? console.warn;
+      say(`clawtrate-computer registers nothing here: ${problem}`);
+      return;
+    }
     createComputer(api);
   },
 };

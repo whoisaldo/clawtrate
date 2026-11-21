@@ -1,17 +1,20 @@
-import type {
-  AccountsState,
-  Bot,
-  ConnectionState,
-  HostInfo,
-  Task,
-  Transcript,
+import {
+  browserUse,
+  type AccountsState,
+  type Bot,
+  type ComputerState,
+  type ConnectionState,
+  type HostInfo,
+  type Task,
+  type Transcript,
 } from "@clawtrate/core";
-import { useCallback, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useState, type RefObject } from "react";
 import { Avatar } from "./Avatar.tsx";
 import { useBridge } from "./bridge.tsx";
 import { stampTime } from "./format.ts";
-import { CloseIcon, ScreenIcon } from "./icons.tsx";
+import { CloseIcon } from "./icons.tsx";
 import { BotSettingsWithUsage } from "./usage/BotUsage.tsx";
+import { ComputerTab } from "./work/ComputerTab.tsx";
 import { FilesTab } from "./work/FilesTab.tsx";
 import type { FileRequest } from "./work/links.tsx";
 import { TabBar } from "./work/TabBar.tsx";
@@ -29,16 +32,6 @@ export type WorkTab = (typeof WORK_TABS)[number]["id"];
 
 export function isWorkTab(value: string | null): value is WorkTab {
   return WORK_TABS.some((tab) => tab.id === value);
-}
-
-function EmptyTab({ icon, title, body }: { icon: ReactNode; title: string; body: string }) {
-  return (
-    <div className="work-empty">
-      <span className="empty-mark">{icon}</span>
-      <h3>{title}</h3>
-      <p>{body}</p>
-    </div>
-  );
 }
 
 /**
@@ -60,11 +53,17 @@ export function WorkPanel({
   fileRequest,
   onShowInChat,
   onFilePath,
+  computer,
+  connection,
+  interactive,
+  onShowStep,
+  onShowQuestion,
+  onRequestAccess,
+  onOpenMachines,
   accounts,
   bots,
   tasks,
   transcripts,
-  connection,
   info,
 }: {
   bot: Bot | undefined;
@@ -83,12 +82,19 @@ export function WorkPanel({
   fileRequest: FileRequest | null;
   onShowInChat: (stepId: string, from: { path: string }) => void;
   onFilePath: (path: string | null) => void;
+  computer: ComputerState | undefined;
+  connection: ConnectionState;
+  interactive: boolean;
+  onShowStep: (stepId: string) => void;
+  onShowQuestion: (questionId?: string) => void;
+  onRequestAccess: (() => void) | null;
+  /** Settings, on Machines: where a node's settings are. */
+  onOpenMachines?: (() => void) | undefined;
   accounts: AccountsState;
   bots: readonly Bot[];
   /** The bot's tasks, for a run in progress when its account changes. */
   tasks: readonly Task[];
   transcripts: Record<string, Transcript>;
-  connection: ConnectionState;
   info: HostInfo;
 }) {
   const bridge = useBridge();
@@ -101,6 +107,8 @@ export function WorkPanel({
     setAnnouncement("");
     requestAnimationFrame(() => setAnnouncement(text));
   }, []);
+  // The Computer tab's mark: a browser call is running in the task (F-139).
+  const active = browserUse(transcript).active;
 
   return (
     <aside
@@ -128,7 +136,15 @@ export function WorkPanel({
           {bot.theme && <p>{bot.theme}</p>}
         </div>
       )}
-      <TabBar tabs={WORK_TABS} selected={tab} onSelect={onTab} idPrefix="work-tab" label="Work" />
+      <TabBar
+        tabs={WORK_TABS.map((each) =>
+          each.id === "computer" && active ? { ...each, mark: "Computer, in use" } : each,
+        )}
+        selected={tab}
+        onSelect={onTab}
+        idPrefix="work-tab"
+        label="Work"
+      />
       <div className="work-sections">
         <div
           role="tabpanel"
@@ -195,11 +211,23 @@ export function WorkPanel({
           tabIndex={0}
           hidden={tab !== "computer"}
         >
-          {task ? (
-            <EmptyTab
-              icon={<ScreenIcon />}
-              title="No screen to show"
-              body={`When ${name} uses a browser or a desktop, you can watch it here.`}
+          {task && bot ? (
+            <ComputerTab
+              key={task.key}
+              bridge={bridge}
+              bot={bot}
+              bots={bots}
+              taskKey={task.key}
+              transcript={transcript}
+              computer={computer}
+              connection={connection}
+              interactive={interactive}
+              visible={tab === "computer"}
+              announce={announce}
+              onShowInChat={onShowStep}
+              onShowQuestion={onShowQuestion}
+              onRequestAccess={onRequestAccess}
+              onOpenMachines={onOpenMachines}
             />
           ) : (
             <p className="work-note">Pick one of {name}'s tasks to see its computer.</p>

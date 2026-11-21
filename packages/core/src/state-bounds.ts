@@ -114,6 +114,23 @@ import {
 } from "./sidebar.ts";
 import type { Digest } from "./bounds.ts";
 import {
+  MAX_COMPUTER_PANES,
+  MAX_COMPUTER_TABS,
+  MAX_COMPUTER_TEXT,
+  MAX_CONTROL_RECORDS,
+  MAX_STOPPED_RUNS,
+} from "./computer-limits.ts";
+import type {
+  ComputerControl,
+  ComputerLease,
+  ComputerPane,
+  ComputerState,
+  ComputerStop,
+  ComputerTab,
+  ComputerView,
+  ControlRecord,
+} from "./computer.ts";
+import {
   MAX_CHECKIN_KEPT,
   MAX_CHECKIN_PROMPT_CHARS,
   type CheckInDefaults,
@@ -871,6 +888,82 @@ export const WORST_ROW_CHARS =
   2 +
   SESSION_ROW_FIELDS.reduce((sum, field) => sum + field.length + 3 + MAX_TASK_LINE_CHARS + 1, 0);
 
+/** The Computer tab (`computer.ts`): codes, plain facts and short strings, never a ticket or a frame. */
+const COMPUTER_TEXT = text(MAX_COMPUTER_TEXT);
+const computerTab = object<ComputerTab>()({
+  targetId: ID,
+  url: COMPUTER_TEXT,
+  title: COMPUTER_TEXT,
+  lease: object<ComputerLease>()({ state: ENUM, holder: ENUM }),
+});
+const computerView = object<ComputerView>()({
+  n: NUMBER,
+  targetId: ID,
+  status: ENUM,
+  end: ENUM,
+  error: COMPUTER_TEXT,
+  url: COMPUTER_TEXT,
+  title: COMPUTER_TEXT,
+  frame: NUMBER,
+  width: NUMBER,
+  height: NUMBER,
+  framesTooLarge: NUMBER,
+  capturedAt: NUMBER,
+  frameAt: NUMBER,
+});
+const computerControl = object<ComputerControl>()({
+  status: ENUM,
+  key: ID,
+  botId: ID,
+  targetId: ID,
+  endCause: ENUM,
+  busyReason: ENUM,
+  busyCount: NUMBER,
+  renewWithinMs: NUMBER,
+  outOfSight: FLAG,
+  stillHeld: FLAG,
+  outcome: ENUM,
+  questionGone: ENUM,
+  answerQueued: FLAG,
+  released: FLAG,
+  refusal: COMPUTER_TEXT,
+});
+const computerPane = object<ComputerPane>()({
+  viewer: ID,
+  key: ID,
+  botId: ID,
+  availability: ENUM,
+  error: COMPUTER_TEXT,
+  browser: ENUM,
+  tabs: list(MAX_COMPUTER_TABS, computerTab),
+  tabsOmitted: NUMBER,
+  checkedAt: NUMBER,
+  shown: ID,
+  view: computerView,
+  control: computerControl,
+  stop: object<ComputerStop>()({
+    sending: FLAG,
+    runIds: list(MAX_STOPPED_RUNS, ID),
+    aborted: FLAG,
+    error: COMPUTER_TEXT,
+  }),
+});
+const controlRecord = object<ControlRecord>()({
+  agentId: ID,
+  profile: COMPUTER_TEXT,
+  targetId: ID,
+  holder: ENUM,
+  state: ENUM,
+  generation: ID,
+  reason: COMPUTER_TEXT,
+  at: NUMBER,
+});
+/** The Computer tab's part of the state. */
+export const COMPUTER = object<ComputerState>()({
+  plugin: FLAG,
+  control: list(MAX_CONTROL_RECORDS, controlRecord),
+  panes: map(MAX_COMPUTER_PANES, MAX_ID_CHARS, computerPane),
+});
 // Provider accounts (accounts.ts). Nothing here holds a credential or anything typed.
 const account = object<GatewayAccount>()({
   id: ID,
@@ -1105,6 +1198,7 @@ export const STATE: Bound = flagged<ClawtrateState>()({
   routines: ROUTINES,
   retention: retentionAlarm,
   sidebar,
+  computer: COMPUTER,
   checkIns: CHECK_INS,
   turnLimitMinutes: NUMBER,
   usage: USAGE,

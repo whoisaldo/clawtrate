@@ -6,7 +6,12 @@
 
 import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
 
-export type TabSpec<T extends string> = { id: T; label: string };
+export type TabSpec<T extends string> = {
+  id: T;
+  label: string;
+  /** A 6 px mark after the word (the Computer tab while the bot's browser is in use), and its name. */
+  mark?: string | null;
+};
 
 type Fit = "normal" | "narrow" | "scroll";
 
@@ -118,10 +123,12 @@ export function TabBar<T extends string>({
           id={`${idPrefix}-${tab.id}`}
           aria-controls={`${idPrefix}panel-${tab.id}`}
           aria-selected={selected === tab.id}
+          aria-label={tab.mark ?? undefined}
           tabIndex={selected === tab.id ? 0 : -1}
           onClick={() => onSelect(tab.id)}
         >
           {tab.label}
+          {tab.mark && <span className="tab-mark" aria-hidden="true" />}
         </button>
       ))}
     </div>

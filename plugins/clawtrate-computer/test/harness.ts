@@ -32,6 +32,15 @@ export const page = (base: string, id: string, url = "http://127.0.0.1:9/page"):
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * The real timer, kept before any check fakes the clock: the fake browser stands for another
+ * process, so it answers in real time while the plugin's own deadlines run on the check's clock.
+ */
+const browserTimer = globalThis.setTimeout;
+
+/** One real turn of the event loop: lets the fake browser answer while a fake clock stands still. */
+export const nextTurn = () => new Promise((resolve) => browserTimer(resolve, 0));
+
 export type LogEntry = {
   t: number;
   kind: "connect" | "send" | "close";
@@ -61,6 +70,8 @@ export class FakeBrowser {
   noBrowserEndpoint = false;
   /** Commands that are never answered. */
   stalledMethods = new Set<string>();
+  /** Tabs, by target id, whose session answers no command. */
+  stalledTabs = new Set<string>();
   sockets: FakeSocket[] = [];
 
   constructor() {
@@ -156,7 +167,7 @@ export class FakeSocket extends EventEmitter {
     browser.sockets.push(this);
     browser.log.push({ t: performance.now(), kind: "connect", url });
     if (!browser.stallConnect) {
-      setTimeout(() => {
+      browserTimer(() => {
         if (this.closed) return;
         this.open = true;
         this.emit("open", {});
@@ -200,7 +211,9 @@ export class FakeSocket extends EventEmitter {
       }
     }
     if (this.browser.stalledMethods.has(message.method)) return;
-    setTimeout(() => {
+    const session = (message as { sessionId?: string }).sessionId;
+    if (session && this.browser.stalledTabs.has(session.replace(/^S-/, ""))) return;
+    browserTimer(() => {
       if (!this.closed)
         this.emit("message", { data: JSON.stringify({ id: message.id, result: {} }) });
     }, this.browser.replyDelayMs);
@@ -216,7 +229,7 @@ export class FakeSocket extends EventEmitter {
     this.closed = true;
     this.open = false;
     this.browser.log.push({ t: performance.now(), kind: "close", url: this.url });
-    setTimeout(() => this.emit("close", { code: 1000, reason: "" }), 0);
+    browserTimer(() => this.emit("close", { code: 1000, reason: "" }), 0);
   }
 }
 
@@ -295,6 +308,7 @@ export function load(
     ticketTtlMs?: number;
     quietWindowMs?: number;
     quietTimeoutMs?: number;
+    callConfirmMs?: number;
   } = {},
 ) {
   const browser = options.browser ?? new FakeBrowser();
@@ -327,6 +341,7 @@ export function load(
     quietWindowMs: options.quietWindowMs ?? 20,
     quietTimeoutMs: options.quietTimeoutMs,
     renewTimeoutMs: options.renewTimeoutMs,
+    callConfirmMs: options.callConfirmMs,
     fetchImpl: browser.fetchImpl,
     WebSocketImpl: browser.WebSocketImpl,
   });

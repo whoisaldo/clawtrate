@@ -61,6 +61,12 @@ import { machineCommands, NO_MACHINE_PARAMS, type MachineParams } from "./machin
 import { FAILED_EVENT, LIVE_SCENES, liveCommand, liveScene, type LiveScene } from "./live.ts";
 import { isRailScene, RAIL_SCENES, railCommands, railScene } from "./rail.ts";
 import { ACTION_SCENES, actionScene, isActionScene } from "./actions.ts";
+import {
+  computerFixture,
+  FIXTURE_VIEWER,
+  withComputerRuns,
+  type ComputerParams,
+} from "./computer.ts";
 import { checkInCommands, fixtureCheckIns, type CheckInParams } from "./check-ins.ts";
 import { memoryCommands } from "./memory.ts";
 import { fixtureUsage, NO_USAGE_PARAMS, usageCommand, type UsageParams } from "./usage.ts";
@@ -482,6 +488,7 @@ export function createFixtureBridge(
     routines?: RoutineParams;
     usage?: UsageParams;
     machines?: MachineParams;
+    computer?: ComputerParams;
     checkIns?: CheckInParams;
   } = {},
 ): ClawtrateBridge & {
@@ -541,11 +548,37 @@ export function createFixtureBridge(
   // And the usage the gateway reports, with this person's budgets.
   const usageParams = options.usage ?? NO_USAGE_PARAMS;
   if (state.bots.length > 0) state = { ...state, usage: fixtureUsage(now, usageParams) };
+  // The Computer scenes: a connection that may send and answer (unless read-only is asked for),
+  // Juniper's research run that uses the browser, and the engine answered by a scripted plugin.
+  const computerParams = options.computer ?? {
+    mode: null,
+    firstWatch: false,
+    takeRace: false,
+    readOnly: false,
+  };
+  if (computerParams.mode !== null) {
+    const write = !computerParams.readOnly;
+    state = {
+      ...state,
+      connection: {
+        ...state.connection,
+        scopes: write
+          ? ["operator.read", "operator.write", "operator.approvals", "operator.questions"]
+          : ["operator.read"],
+        canWrite: write,
+        canAnswer: write,
+        canApprove: write,
+      },
+      transcripts: withComputerRuns(state.transcripts, now, computerParams),
+    };
+  }
   const listeners = new Set<(state: ClawtrateState) => void>();
   const set = (next: ClawtrateState) => {
     state = next;
     for (const listener of listeners) listener(state);
   };
+  const computer =
+    computerParams.mode !== null ? computerFixture(computerParams, now, () => state, set) : null;
   // A scene's later steps are timed from when the interface first listens, after it has drawn
   // the first state: timed from here, a slow machine could draw its first frame after them,
   // and never show the state the scene starts from.
@@ -633,6 +666,45 @@ export function createFixtureBridge(
     sent.push(command);
     if (live) return live;
     if (FILE_COMMANDS.has(command.type)) return fileAnswer(command);
+    if (computer && command.type.startsWith("computer")) {
+      const e = computer.engine;
+      const v = FIXTURE_VIEWER;
+      switch (command.type) {
+        case "computerShow":
+          e.show(v, command.key);
+          return { viewer: v };
+        case "computerLeave":
+          return e.leave(v);
+        case "computerTabs":
+          return e.readTabs(v);
+        case "computerChoose":
+          return e.choose(v, command.targetId);
+        case "computerWatch":
+          return e.watch(v);
+        case "computerStopWatching":
+          return e.stopWatching(v);
+        case "computerFrame":
+          return e.frame(v, command.n, command.after);
+        case "computerTake":
+          return e.take(v);
+        case "computerCancelTake":
+          return e.cancelTake(v);
+        case "computerInput":
+          return { sent: e.input(v, command.input) };
+        case "computerRelease":
+          return e.release(v, command.answer ? { answer: command.answer } : {});
+        case "computerCheck":
+          return e.check(v);
+        case "computerDismiss":
+          return e.dismiss(v);
+        case "computerStopTask":
+          return e.stopTask(v);
+      }
+    }
+    if (command.type === "readMachine") {
+      if (!computer) throw new Error("Not connected to the gateway.");
+      return computer.machine(command.key, command.probe);
+    }
     switch (command.type) {
       case "connect":
       case "connectDevGateway":

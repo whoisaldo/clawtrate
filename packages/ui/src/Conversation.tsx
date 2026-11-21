@@ -9,6 +9,7 @@ import type {
   Transcript,
   TranscriptItem,
 } from "@clawtrate/core";
+import { browserUse } from "@clawtrate/core";
 import {
   useCallback,
   useEffect,
@@ -31,7 +32,7 @@ import { LeavingStatusLine, StatusLine } from "./StatusLine.tsx";
 import { FindBar } from "./Find.tsx";
 import { contextWords, daysAgo, fullDate, stampTime } from "./format.ts";
 import { BudgetLine, UsageNotes } from "./usage/ConversationUsage.tsx";
-import { ArrowDownIcon, BackIcon, PanelIcon } from "./icons.tsx";
+import { ArrowDownIcon, BackIcon, PanelIcon, ScreenIcon } from "./icons.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { itemText, MessageProvider, MessageUnit, ReplyQuote, ThreadView } from "./Messages.tsx";
 import { TEXT_BLOCKS } from "./reading-line.ts";
@@ -772,6 +773,7 @@ export function Conversation({
   caughtUp,
   inert = false,
   granted,
+  onShowComputer,
 }: {
   task: Task | null;
   bot: Bot | undefined;
@@ -801,9 +803,13 @@ export function Conversation({
   inert?: boolean;
   /** Access arrived a moment ago. */
   granted: boolean;
+  /** Open the Work pane on Computer, focusing its tab (work-pane.md, section 15). */
+  onShowComputer?: () => void;
 }) {
   const itemCount = transcript?.items.length ?? 0;
   const send = useCommand();
+  // The computer button: once the task used the browser tool; its dot while a call runs (F-139).
+  const computerUse = browserUse(transcript);
   const sectionRef = useRef<HTMLElement>(null);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   // Each notice belongs to the task it was raised in, and shows only there.
@@ -1115,6 +1121,19 @@ export function Conversation({
           <span />
         )}
         <div className="header-side" data-side="end">
+          {bot && task && onShowComputer && computerUse.used && (
+            <button
+              type="button"
+              className="icon-button computer-button"
+              data-active={computerUse.active}
+              aria-label={`${bot.name}'s computer${computerUse.active ? ", in use" : ""}. Show the computer`}
+              title="Computer"
+              data-testid="computer-button"
+              onClick={onShowComputer}
+            >
+              <ScreenIcon />
+            </button>
+          )}
           {bot && (
             <button
               ref={toggleRef}

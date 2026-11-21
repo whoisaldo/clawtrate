@@ -21,6 +21,7 @@ const ALLOWED: Record<string, string> = {
   // Static: built once from constants, never grown.
   "packages/core/src/memory.ts:ROOT_MEMORY": "static, two workspace filenames",
   "packages/core/src/approvals.ts:APPROVAL_KINDS": "static, three kinds",
+  "packages/core/src/computer.ts:BUSY_REASONS": "static, the plugin's five busy codes",
   "packages/core/src/stop-words.ts:STOP_NOW": "static, the three ways of typing Stop now",
   "packages/core/src/file-paths.ts:FILE_TOOLS": "static, four tool names",
   "packages/core/src/file-paths.ts:CHANGE_TOOLS": "static, three tool names",
@@ -88,6 +89,16 @@ const ALLOWED: Record<string, string> = {
   "packages/core/src/types.ts:initialState.unroutedApprovals":
     "static, an empty list copied on write",
   "packages/core/src/types.ts:initialState.creations": "static, an empty list copied on write",
+  "packages/core/src/types.ts:initialState.computer.control":
+    "static, an empty list copied on write",
+  "packages/core/src/computer.ts:initialComputerState.control":
+    "static, an empty list copied on write",
+  "packages/core/src/computer.ts:readTabs>tabs":
+    "one answer; the tabs it lists, cut to `MAX_COMPUTER_TABS` before they are kept in the pane",
+  "packages/core/src/computer.ts:stopTask>sent.runIds":
+    "the empty list while the stop is sent; the answer replaces it, never grows it",
+  "packages/core/src/computer.ts:stopTask>stop.runIds":
+    "one answer; the runs it names, cut to `MAX_STOPPED_RUNS` before they are kept in the pane",
   "packages/core/src/routines.ts:initialRoutinesState.routines":
     "the empty list before the first read; the state replaces it, never grows it",
   "packages/core/src/accounts.ts:initialAccountsState.accounts":

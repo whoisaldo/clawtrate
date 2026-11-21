@@ -1,0 +1,864 @@
+/* The Work pane's Computer tab (docs/design/work-pane.md, Part 3): the tile,
+   the full view and its control bar, the machine, recent actions and
+   commands. The prototype's rules (docs/design/prototype/css/work.css), on
+   the app's tokens. */
+
+/* The tile and the full view are dark in either theme: the dark theme's tokens. */
+.computer-dark {
+  color-scheme: dark;
+  --bg: #101112;
+  --bg-raised: #1c1d1f;
+  --bg-bubble: #1f2022;
+  --bg-inset: #1a1b1d;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-selected: rgba(255, 255, 255, 0.1);
+  --bg-inverse: #f3f3f2;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #f3f3f2;
+  --text-muted: #b4b6b9;
+  --text-faint: #9d9fa2;
+  --text-inverse: #111213;
+  --accent: #3ee6c1;
+  --accent-line: #3ee6c1;
+  --accent-soft: rgba(62, 230, 193, 0.12);
+  --accent-on: #04261f;
+  --warn: #f0b45a;
+  --warn-soft: rgba(240, 180, 90, 0.12);
+  --danger: #ff8a80;
+  --danger-soft: rgba(255, 138, 128, 0.12);
+  --shadow-button: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-pop: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 16px 44px rgba(0, 0, 0, 0.6);
+}
+
+/* The header's computer button: a mark while the bot's browser is in use. */
+.computer-button {
+  position: relative;
+}
+
+.computer-button[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-line);
+  box-shadow: 0 0 0 2px var(--bg-raised);
+}
+
+/* A tab can carry one mark after its word: the computer in use. */
+.tab .tab-mark {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent-line);
+  vertical-align: middle;
+}
+
+.computer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Each section is headed by small grey words, as Details' groups are. */
+.computer-section h3 {
+  margin: 14px 4px 8px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  color: var(--text-faint);
+}
+
+.computer > .computer-section:first-child h3,
+.computer-banner + .computer-section h3 {
+  margin-top: 4px;
+}
+
+.computer-empty h4 {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+}
+
+.computer-empty p {
+  margin: 0;
+}
+
+.computer-plugin-note {
+  max-width: 40ch;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.screen {
+  position: relative;
+  display: grid;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  color: var(--text);
+}
+
+.screen > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.screen-blank {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.screen-blank p {
+  max-width: 34ch;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text);
+}
+
+.screen-blank .button {
+  background: var(--bg-bubble);
+  color: var(--text);
+}
+
+.screen-watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-inverse);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-inverse);
+  cursor: pointer;
+}
+
+.screen-live {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.62);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: #fff;
+}
+
+.screen-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.screen-actions .icon-button {
+  width: 32px;
+  height: 32px;
+  background: rgba(0, 0, 0, 0.62);
+  box-shadow: none;
+  color: #fff;
+}
+
+.screen-caption {
+  margin: 8px 4px 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.screen-caption strong {
+  font-weight: var(--weight-medium);
+  color: var(--text);
+}
+
+.screen-tabs {
+  display: grid;
+  gap: 2px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.screen-tab {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+  align-items: center;
+}
+
+.screen-tab:hover {
+  background: var(--bg-hover);
+}
+
+.screen-tab[aria-current="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.screen-tab span + span {
+  color: var(--text-faint);
+}
+
+.screen-auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 4px 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.screen-auto input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--text);
+}
+
+.screen-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.computer-empty .link-button {
+  margin-top: 6px;
+}
+
+.computer-shared {
+  margin: 0 4px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+/* The bot waits on the person: the conversation's warn shelf, in the pane. */
+.computer-banner {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--warn-soft);
+  font-size: var(--text-sm);
+}
+
+.computer-banner .glyph {
+  margin-top: 4px;
+}
+
+.computer-banner strong {
+  font-weight: var(--weight-medium);
+  color: var(--warn);
+}
+
+.computer-banner p {
+  margin: 2px 0 10px;
+  color: var(--text);
+}
+
+.computer-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.computer-banner .button {
+  gap: 6px;
+}
+
+.machine-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 4px 6px;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.machine-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.machine-state .glyph {
+  margin: 0;
+}
+
+.machine-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: 8px 4px 0;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+
+.computer .facts + .facts {
+  margin-top: 8px;
+}
+
+.computer .facts dd {
+  white-space: normal;
+  text-align: right;
+}
+
+.action-list,
+.command-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: 58px 16px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-size: var(--text-md);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.action-row:hover {
+  background: var(--bg-hover);
+}
+
+.action-row time {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.action-row .icon {
+  color: var(--text-faint);
+}
+
+.action-row em {
+  grid-column: 3;
+  font-size: var(--text-xs);
+  font-style: normal;
+  color: var(--text-faint);
+}
+
+.command-row {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.command-row code {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.command-row span {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.command-row .link-button {
+  justify-self: start;
+}
+
+.stop-confirm {
+  position: static;
+  width: auto;
+  margin: 0 0 10px;
+  padding: 12px 14px;
+  font-size: var(--text-sm);
+}
+
+.stop-confirm p {
+  margin: 0 0 10px;
+}
+
+.stop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.button[data-tone="danger"] {
+  color: var(--danger);
+}
+
+/* The full view: the viewer's frame, a control bar, the page letterboxed. */
+.screen-view {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.screen-bar .avatar {
+  width: var(--avatar-pill);
+  height: var(--avatar-pill);
+}
+
+.screen-bar .button {
+  gap: 6px;
+}
+
+.screen-mode {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-selected);
+  color: var(--text) !important;
+}
+
+.control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 20px 6px;
+  padding: 8px 10px 8px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-bubble);
+  font-size: var(--text-sm);
+}
+
+.control-bar strong {
+  font-weight: var(--weight-medium);
+}
+
+.control-bar .spacer {
+  flex: 1;
+}
+
+.control-bar .glyph {
+  margin: 0;
+}
+
+/* The standing second line under "You have control": what control does not stop. */
+.control-bar .control-paused {
+  flex-basis: 100%;
+  order: 10;
+  color: var(--text-muted);
+}
+
+.screen-caption .control-paused {
+  color: var(--text-muted);
+}
+
+.control-note {
+  margin: 0 24px 6px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.screen-pills {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 2px 16px 8px;
+}
+
+.screen-pill {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.screen-pill[aria-pressed="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.screen-stage {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 0;
+  padding: 4px 24px 24px;
+  container-type: size;
+}
+
+.screen-bar {
+  min-height: 56px;
+}
+
+.screen-frame {
+  position: relative;
+  width: min(100cqw, 100cqh * 16 / 9);
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.screen-frame svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.screen-frame[data-control="true"] {
+  box-shadow: 0 0 0 2px var(--accent-line);
+  cursor: default;
+}
+
+.screen-frame:focus-visible {
+  outline-offset: 4px;
+}
+
+.screen-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.75);
+  font-size: var(--text-sm);
+  color: #fff;
+  transform: translateX(-50%);
+}
+
+.screen-view .viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 20px;
+}
+
+.screen-view .viewer-title {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+.screen-view .viewer-title strong {
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+}
+
+.screen-view .viewer-title span {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-faint);
+}
+
+.screen-view .avatar {
+  width: 22px;
+  height: 22px;
+}
+
+.screen-frame .screen-blank {
+  height: 100%;
+  background: var(--bg-inset);
+}
+
+@container app (max-width: 687px) {
+  .screen-stage {
+    padding: 4px 8px 12px;
+  }
+
+  .control-bar {
+    margin: 0 8px 6px;
+  }
+
+  .screen-bar .viewer-title span:not(.screen-mode) {
+    display: none;
+  }
+
+  .screen-bar {
+    padding-left: 12px;
+  }
+}
+
+.screen-caption span {
+  color: var(--text-faint);
+}
+
+.machine-sub {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: normal;
+}
+
+.machine-asof {
+  margin: 6px 4px 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.control-gone {
+  color: var(--text-muted);
+}
+
+.computer-held .glyph {
+  margin: 0;
+}
+
+.screen-zoom-inner {
+  min-width: 100%;
+}
+
+.screen-view[data-layout="phone"] .screen-zoom-inner .screen-frame {
+  width: calc(100% - 16px);
+}
+
+/* The phone's full view: the page zooms and pans on the device; the controls
+   sit in a dock at the foot, within a thumb's reach. */
+.screen-view[data-layout="phone"] .screen-bar {
+  gap: 6px;
+  padding: 0 8px 0 12px;
+}
+
+.screen-view[data-layout="phone"] .screen-bar .screen-pill {
+  flex: none;
+  background: var(--bg-selected);
+  color: var(--text);
+}
+
+.screen-view[data-layout="phone"] .screen-stage {
+  position: relative;
+  display: block;
+  padding: 0;
+  container-type: normal;
+}
+
+.screen-zoom {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+.screen-view[data-layout="phone"] .screen-frame {
+  height: auto;
+  margin: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.zoom-controls {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.zoom-controls .icon-button,
+.zoom-fit {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  color: #fff;
+}
+
+.zoom-controls .icon-button:disabled {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.zoom-fit {
+  width: 52px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.keyboard-button {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 50px;
+  height: 50px;
+  background: rgba(0, 0, 0, 0.62);
+  box-shadow: none;
+  color: #fff;
+}
+
+.keyboard-button[aria-expanded="true"] {
+  background: var(--bg-inverse);
+  color: var(--text-inverse);
+}
+
+.control-help {
+  margin: 6px 12px 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.control-help summary {
+  min-height: 32px;
+  padding: 6px 4px;
+  cursor: pointer;
+}
+
+.control-help p {
+  margin: 0 4px 6px;
+  line-height: 1.45;
+}
+
+.control-dock {
+  padding: 6px 12px 12px;
+}
+
+.control-dock .control-bar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+}
+
+.control-dock .control-bar .spacer {
+  display: none;
+}
+
+.control-dock .control-bar .button {
+  width: 100%;
+  height: 48px;
+  font-size: var(--text-base);
+}
+
+.control-dock .control-bar > strong,
+.control-dock .control-bar > span {
+  text-align: center;
+}
+
+.control-dock > .control-note#control-note {
+  display: none;
+}
+
+.type-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px 12px;
+  background: var(--bg-raised);
+}
+
+.type-bar .input {
+  height: 44px;
+  font-size: var(--text-lg);
+}
+
+.type-bar .input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Text the gateway didn't take: on a line of its own, below the field. */
+.type-unsent {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.screen-tabs-sheet {
+  position: absolute;
+  top: 56px;
+  right: 8px;
+  z-index: 3;
+  width: 260px;
+}
+
+.screen-tabs-sheet .menu-item span {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+
+/* In the dock, "You have control" and its second line come first, full
+   width and together, then the first answer full width, the others sharing
+   one row. */
+.control-dock .control-bar[data-state="control"] {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.control-dock .control-bar[data-state="control"] > .icon {
+  display: none;
+}
+
+.control-dock .control-bar[data-state="control"] > strong {
+  grid-column: 1 / -1;
+  order: -2;
+}
+
+.control-dock .control-bar[data-state="control"] > .control-paused {
+  grid-column: 1 / -1;
+  order: -1;
+  text-align: center;
+}
+
+.control-dock .control-bar[data-state="control"] > .button[data-variant="primary"] {
+  grid-column: 1 / -1;
+}
+
+.control-dock .control-bar[data-state="control"] > .control-gone {
+  grid-column: 1 / -1;
+}
+
+[data-input="touch"] .zoom-controls .icon-button {
+  width: 44px;
+  height: 44px;
+}

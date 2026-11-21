@@ -26,6 +26,8 @@ export type DeviceSigner = {
 /** The subset of the WHATWG WebSocket that core uses. Browsers, Node 22+ and React Native all provide it. */
 export type WebSocketLike = {
   readonly readyState: number;
+  /** How binary messages arrive; the computer's stream asks for `arraybuffer`. */
+  binaryType?: string;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   onopen: ((event: unknown) => void) | null;

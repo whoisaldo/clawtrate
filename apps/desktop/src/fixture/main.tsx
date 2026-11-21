@@ -13,6 +13,8 @@
 //   &files=loaded          the Work pane's Files states (files.ts), with &checkout=1, &fileload=failed
 //   &tab=files             the Work pane's tab
 //   &access=admin, &lock=locked, &signin=failed …   accounts (accounts.ts)
+//   &computer=control      the Work pane's Computer states (computer.ts), with &firstwatch=1,
+//                          &takerace=grant, &access=read
 //   &checkins=off, &scheduler=off, &cisave=fail …    check-ins (check-ins.ts)
 //   &routines=running, &routines=many …            routines (routines.ts)
 //   &usage=…, &budget=…, &plimit=…, &uview=usage     usage and budgets (usage.ts)
@@ -24,6 +26,7 @@ import { createFixtureBridge, GATEWAY_ID, GATEWAY_URL, isScene } from "./bridge-
 import { CARD_TASKS, isCardScene } from "./cards.ts";
 import { OPEN_BOT, OPEN_TASK } from "./data.ts";
 import { fileParams } from "./files.ts";
+import { computerParams } from "./computer.ts";
 import { accountParams } from "./accounts.ts";
 import { checkInParams } from "./check-ins.ts";
 import { releaseRoutineReads, routineParams } from "./routines.ts";
@@ -63,6 +66,19 @@ function seedPreferences() {
   if (panel === "open" || panel === "closed") write("panel", panel);
   const tab = params.get("tab");
   if (tab) write("workTab", tab);
+  // The Computer scenes: the one-time note before the first watch was seen, unless asked for,
+  // then unseen even when an earlier scene in this browser saw it.
+  if (params.has("computer")) {
+    for (const bot of ["main", "otto", "marlow", "pip"]) {
+      if (params.get("firstwatch") !== "1") write(`computerNote.${bot}`, "1");
+      else
+        try {
+          localStorage.removeItem(`clawtrate.computerNote.${bot}`);
+        } catch {
+          // Storage may be unavailable; the note then shows as it would.
+        }
+    }
+  }
   const list = (name: string) => params.get(name)?.split(",").filter(Boolean);
   if (params.has("pins") || params.has("hidden") || params.has("sort")) {
     // Kept per gateway, under the fixture gateway's identity.
@@ -84,6 +100,7 @@ const sceneName = params.get("scene");
 const bridge = createFixtureBridge(isScene(sceneName) ? sceneName : "main", {
   desktopUpdates: fixtureUpdates(params),
   files: fileParams(params),
+  computer: computerParams(params),
   accounts: accountParams(params),
   checkIns: checkInParams(params),
   routines: routineParams(params),

@@ -1,6 +1,7 @@
 import { mapSessionRow, type ClawtrateState, type HostInfo } from "@clawtrate/core";
 import { canWrite } from "./access.ts";
 import { OpenTaskContext } from "./cards/index.ts";
+import { cardDomId } from "./cards/placement.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCommand } from "./bridge.tsx";
 import { Conversation } from "./Conversation.tsx";
@@ -58,7 +59,7 @@ export function Shell({
   onBubbles: (choice: BubbleChoice) => void;
   onUnreadCount?: ((count: number) => void) | undefined;
   updateEntry: boolean;
-  onOpenSettings: (section?: "updates") => void;
+  onOpenSettings: (section?: "updates" | "machines") => void;
   /** Set while Settings covers the shell. */
   inert?: boolean;
   /** Whether the open task has caught up since the latest connect: until then work is last seen. */
@@ -296,6 +297,10 @@ export function Shell({
   // pane moves nothing except off what has just become inert.
   const drawerWasOpen = useRef(false);
   const panelWasOpen = useRef(panelOpen);
+  const focusOpener = () => {
+    const opener = openerRef.current;
+    (canFocus(opener) ? opener : toggleRef.current)?.focus();
+  };
   useEffect(() => {
     // Right after a resize the last measurement can lag a frame behind, so
     // focus is decided from the pane's width as it is now.
@@ -308,8 +313,7 @@ export function Shell({
     } else if (!panelOpen && panelWasOpen.current) {
       const active = document.activeElement;
       if (drawerWasOpen.current || !active || active === document.body) {
-        const opener = openerRef.current;
-        (canFocus(opener) ? opener : toggleRef.current)?.focus();
+        focusOpener();
       }
     }
     drawerWasOpen.current = drawerNow;
@@ -410,6 +414,65 @@ export function Shell({
     },
     [drawerOpen, setPanel, taskKey],
   );
+  // From the Computer tab: a step shown in the chat, and the question card (work-pane.md, section 18).
+  const showStep = useCallback(
+    (stepId: string) => {
+      const callId = stepId.startsWith("tool:") ? stepId.slice(5) : stepId;
+      const fromDrawer = drawerOpen;
+      const reveal = () => {
+        const found = taskKey !== null && revealStep(taskKey, callId);
+        // Nothing in the chat to focus: back to what opened the drawer, or the Work toggle.
+        if (!found && fromDrawer) focusOpener();
+        setChatNote("");
+        requestAnimationFrame(() =>
+          setChatNote(
+            found
+              ? "Showing the step in the chat"
+              : "This step isn't in the chat: it is not loaded here, or not kept.",
+          ),
+        );
+      };
+      if (drawerOpen) {
+        keepFocus.current = true;
+        setPanel(false);
+        requestAnimationFrame(() => requestAnimationFrame(reveal));
+      } else reveal();
+    },
+    [drawerOpen, setPanel, taskKey],
+  );
+  /** Bring a question's card into view and focus it: that question's own, when it is named. */
+  const showQuestion = useCallback(
+    (questionId?: string) => {
+      const fromDrawer = drawerOpen;
+      const reveal = () => {
+        const cards = document.querySelectorAll<HTMLElement>(
+          '.transcript [data-testid="question-card"]',
+        );
+        const card = questionId
+          ? document.querySelector<HTMLElement>(
+              `.transcript #${cardDomId({ kind: "question", id: questionId })}`,
+            )
+          : cards[cards.length - 1];
+        if (!card) {
+          if (fromDrawer) focusOpener();
+          return;
+        }
+        card.scrollIntoView({ block: "center" });
+        (card.querySelector<HTMLElement>("button, input") ?? card).focus({ preventScroll: true });
+      };
+      if (drawerOpen) {
+        keepFocus.current = true;
+        setPanel(false);
+        requestAnimationFrame(() => requestAnimationFrame(reveal));
+      } else requestAnimationFrame(reveal);
+    },
+    [drawerOpen, setPanel],
+  );
+  const showComputer = useCallback(() => {
+    setPanel(true);
+    setWorkTab("computer");
+    requestAnimationFrame(() => document.getElementById("work-tab-computer")?.focus());
+  }, [setPanel, setWorkTab]);
   const goBackToFile = useCallback(() => {
     setPanel(true);
     setWorkTab("files");
@@ -557,6 +620,7 @@ export function Shell({
                 caughtUp={caughtUp}
                 toggleRef={toggleRef}
                 inert={drawerOpen || inert}
+                onShowComputer={showComputer}
               />
             </WorkLinksContext.Provider>
           </OpenTaskContext.Provider>
@@ -580,6 +644,15 @@ export function Shell({
             fileRequest={fileRequest}
             onShowInChat={showInChat}
             onFilePath={setOpenFilePath}
+            computer={state.computer}
+            connection={state.connection}
+            interactive={interactive}
+            onShowStep={showStep}
+            onShowQuestion={showQuestion}
+            onRequestAccess={
+              info.readOnly ? null : () => void send({ type: "requestAccess" }).catch(() => {})
+            }
+            onOpenMachines={() => onOpenSettings("machines")}
             drawer={drawerOpen}
             onClose={() => setPanel(false)}
             closeRef={closeRef}
@@ -588,7 +661,6 @@ export function Shell({
             bots={state.bots}
             tasks={bot ? (state.tasksByBot[bot.id] ?? []) : []}
             transcripts={state.transcripts}
-            connection={state.connection}
             info={info}
           />
         )}

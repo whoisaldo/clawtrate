@@ -5,8 +5,8 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { ATLAS, ATLAS_TAB, Access, load, sleep, until } from "./harness.ts";
+import { describe, expect, it, vi } from "vitest";
+import { ATLAS, ATLAS_TAB, Access, load, nextTurn, sleep, until } from "./harness.ts";
 
 const tab = { targetId: ATLAS_TAB };
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString("base64");
@@ -201,16 +201,44 @@ describe("how a stream ends", () => {
   });
 
   it("an unrenewed stream closes with 4006; a renewed one stays", async () => {
-    const h = load({ renewTimeoutMs: 150 });
-    const kept = await watching(h);
-    const dropped = await watching(h);
-    for (let i = 0; i < 4; i += 1) {
-      await sleep(80);
-      const renewal = await h.call("view.renew", { ...tab, streamId: kept.view.streamId });
-      expect(renewal.payload).toMatchObject({ streamRenewed: true, leaseRenewed: false });
+    // The plugin's deadlines on a clock that moves only when the check moves it, so a slow
+    // machine cannot let the kept stream's deadline pass between two renewals.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      // `work` and then `ready`, with the clock standing still: only the fake browser answers.
+      const settle = async <T>(work: Promise<T>, ready = () => true): Promise<T> => {
+        let finished = false;
+        const settled = work.finally(() => (finished = true));
+        for (let i = 0; !(finished && ready()); i += 1) {
+          if (i > 1000) throw new Error("did not settle with the clock standing still");
+          await nextTurn();
+          await vi.advanceTimersByTimeAsync(0);
+        }
+        return settled;
+      };
+      const h = load({ renewTimeoutMs: 150 });
+      const open = async () => {
+        const started = h.browser.sent("Page.startScreencast").length;
+        const view = await settle(h.call("view.open", tab));
+        const socket = await settle(
+          h.upgrade(String(view.payload!.wsPath)),
+          () => h.browser.sent("Page.startScreencast").length === started + 1,
+        );
+        return { streamId: view.payload!.streamId, socket };
+      };
+      const kept = await open();
+      const dropped = await open();
+      for (let i = 0; i < 4; i += 1) {
+        await vi.advanceTimersByTimeAsync(80);
+        const renewal = await settle(h.call("view.renew", { ...tab, streamId: kept.streamId }));
+        expect(renewal.payload).toMatchObject({ streamRenewed: true, leaseRenewed: false });
+      }
+      // 320 ms on: the stream nobody renewed ended at 150; the kept one was renewed every 80.
+      expect(dropped.socket.closeCode()).toEqual({ code: 4006, reason: "authority_revoked" });
+      expect(kept.socket.closeCode()).toBeNull();
+    } finally {
+      vi.useRealTimers();
     }
-    expect(dropped.socket.closeCode()).toEqual({ code: 4006, reason: "authority_revoked" });
-    expect(kept.socket.closeCode()).toBeNull();
   });
 
   it("only its own connection renews a stream", async () => {

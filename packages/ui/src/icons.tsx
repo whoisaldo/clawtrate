@@ -258,6 +258,60 @@ export const MoreIcon = (props: IconProps) => (
   </Icon>
 );
 
+export const ExpandIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M9.5 2.75h3.75V6.5M6.5 13.25H2.75V9.5M13.25 2.75 9 7M2.75 13.25 7 9" />
+  </Icon>
+);
+
+export const CollapseIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M13 6.75H9.25V3M3 9.25h3.75V13M9.25 6.75l4-4M6.75 9.25l-4 4" />
+  </Icon>
+);
+
+export const HandIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M5.5 8.5V4.25a1 1 0 0 1 2 0v3.5M7.5 7.5V3.25a1 1 0 0 1 2 0V7.5M9.5 7.5V4.25a1 1 0 0 1 2 0v5c0 2.5-1.6 4.25-4 4.25-1.6 0-2.6-.75-3.5-2L2.75 9.25a1 1 0 0 1 1.5-1.25L5.5 9.25" />
+  </Icon>
+);
+
+/** The eye with a bar: Stop watching. */
+export const EyeOffIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8Z" />
+    <circle cx="8" cy="8" r="1.9" />
+    <path d="M2.5 13.5 13.5 2.5" />
+  </Icon>
+);
+
+export const MachineIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="2.5" y="2.75" width="11" height="4.25" rx="1.5" />
+    <rect x="2.5" y="9" width="11" height="4.25" rx="1.5" />
+    <path d="M5 4.9h.05M5 11.1h.05" />
+  </Icon>
+);
+
+export const KeyboardIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="1.75" y="4" width="12.5" height="8" rx="1.75" />
+    <path d="M4.5 6.5h.05M6.75 6.5h.05M9 6.5h.05M11.25 6.5h.05M5.5 9.5h5" />
+  </Icon>
+);
+
+export const MinusIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3.5 8h9" />
+  </Icon>
+);
+
+export const PluginIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M6 2.75v2.5M10 2.75v2.5M4.25 5.25h7.5v2.5a3.75 3.75 0 0 1-7.5 0v-2.5ZM8 11.5v1.75" />
+  </Icon>
+);
+
 export const SmileIcon = (props: IconProps) => (
   <Icon {...props}>
     <circle cx="8" cy="8" r="5.75" />

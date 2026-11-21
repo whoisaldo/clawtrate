@@ -48,6 +48,7 @@ const WALKED = new Set([
   "UsageEngine",
   "MachinesEngine",
   "WaitingIndex",
+  "ComputerViews",
 ]);
 /** Classes whose instances hold no collection of their own: handles. */
 const HANDLES = new Set(["Promise", "Timeout", "Immediate"]);

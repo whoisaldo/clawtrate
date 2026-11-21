@@ -180,14 +180,28 @@ export function createViewerChannel(
   };
 }
 
-/** A viewer's snapshot: the shared state with only the tasks that viewer has open. */
-export function viewerState(state: ClawtrateState, open: ReadonlySet<string>): ClawtrateState {
+/**
+ * A viewer's snapshot: the shared state with only the tasks that viewer has
+ * open, and of the Computer tab's panes only its own.
+ */
+export function viewerState(
+  state: ClawtrateState,
+  open: ReadonlySet<string>,
+  viewer: string | null = null,
+): ClawtrateState {
   const transcripts: ClawtrateState["transcripts"] = {};
   for (const key of open) {
     const transcript = state.transcripts[key];
     if (transcript) transcripts[key] = transcript;
   }
-  return { ...state, transcripts };
+  const computer = state.computer;
+  if (!computer) return { ...state, transcripts };
+  const own = viewer ? computer.panes[viewer] : undefined;
+  return {
+    ...state,
+    transcripts,
+    computer: { ...computer, panes: own && viewer ? { [viewer]: own } : {} },
+  };
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -494,7 +508,7 @@ export function startWebHost(options: WebHostOptions) {
     const channel = createViewerChannel(
       ws,
       gate,
-      (state) => viewerState(state, session.openTasks()),
+      (state) => viewerState(state, session.openTasks(), session.computerViewer()),
       options.snapshotDrainTimeoutMs ?? SNAPSHOT_DRAIN_TIMEOUT_MS,
     );
     channel.sendHello(runtime.info, runtime.client.state);

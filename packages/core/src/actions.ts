@@ -2451,6 +2451,8 @@ const DETAIL_KEYS: Record<string, true> = {
   enqueued: true,
   run: true,
   exitCode: true,
+  durationMs: true,
+  nodeId: true,
   exitReason: true,
   timedOut: true,
   failureKind: true,

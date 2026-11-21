@@ -40,7 +40,7 @@ export async function watchBrowser(bot, options = {}) {
     }
     return cdp.send(method, params, sendOptions);
   };
-  /** sessionId -> { targetId, loading: Set<frameId>, enabling: boolean } */
+  /** sessionId -> { targetId, loading: Set<frameId>, enabling: boolean, unwatched: boolean } */
   const tabs = new Map();
   /**
    * download guid -> sessionId of the tab that started it. A download belongs
@@ -65,19 +65,10 @@ export async function watchBrowser(bot, options = {}) {
     if (method === "Target.attachedToTarget") {
       const info = params.targetInfo ?? {};
       if (info.type !== "page" || typeof params.sessionId !== "string") return;
-      const tab = { targetId: info.targetId, loading: new Set(), enabling: true };
+      const tab = { targetId: info.targetId, loading: new Set(), enabling: true, unwatched: false };
       tabs.set(params.sessionId, tab);
       changed();
-      // Chromium answers this only once a pending navigation in the tab has
-      // ended, so until then the tab counts as loading.
-      command("Page.enable", {}, { sessionId: params.sessionId })
-        .then(
-          () => (tab.enabling = false),
-          () => {
-            // A tab that cannot be watched stays unresolved until it goes.
-          },
-        )
-        .finally(changed);
+      void enable(params.sessionId, tab);
       return;
     }
     if (method === "Target.detachedFromTarget") {
@@ -97,6 +88,26 @@ export async function watchBrowser(bot, options = {}) {
     changed();
   });
   cdp.onClose(changed);
+
+  /**
+   * Turn on a tab's page events. Chromium answers only once a pending
+   * navigation in the tab has ended, so until then the tab counts as loading.
+   * A tab that does not answer in time is unwatched, not loading: what it does
+   * cannot be seen until it is asked again (`recheck`) and answers.
+   */
+  function enable(sessionId, tab) {
+    tab.enabling = true;
+    tab.unwatched = false;
+    return command("Page.enable", {}, { sessionId })
+      .then(
+        () => (tab.enabling = false),
+        () => {
+          tab.enabling = false;
+          tab.unwatched = true;
+        },
+      )
+      .finally(changed);
+  }
 
   try {
     await command("Target.setAutoAttach", {
@@ -118,19 +129,23 @@ export async function watchBrowser(bot, options = {}) {
     browserUrl,
     /** The downloads it has seen begin and not end. */
     inProgress: () => [...downloads.keys()],
+    /** Ask every unwatched tab again; resolves once each has answered or failed again. */
+    recheck: () =>
+      Promise.all([...tabs].filter(([, tab]) => tab.unwatched).map(([id, tab]) => enable(id, tab))),
     /** Replace what allows the watch's later commands (for tabs opened later). */
     setAllow(fn) {
       allow = fn;
     },
     /**
      * What is unresolved now, or null: "download" while a download is in
-     * progress, "loading" while a tab is loading; "closed" once the watch has
-     * lost the browser.
+     * progress, "loading" while a tab is loading, "unwatched" while a tab did
+     * not answer the watch; "closed" once the watch has lost the browser.
      */
     unresolved() {
       if (cdp.closed) return "closed";
       if (downloads.size > 0) return "download";
       for (const tab of tabs.values()) if (tab.enabling || tab.loading.size > 0) return "loading";
+      for (const tab of tabs.values()) if (tab.unwatched) return "unwatched";
       return null;
     },
     onClose: (fn) => cdp.onClose(fn),

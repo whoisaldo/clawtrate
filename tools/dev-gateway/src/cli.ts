@@ -364,6 +364,10 @@ export function browserConfig(
     browser: {
       enabled: true,
       headless: true,
+      // On Linux, Chromium's own sandbox needs user namespaces that CI runners and containers
+      // do not give it, so the browser would not start; Playwright runs it without one there too.
+      // The browser is confined to the scripted pages on loopback either way (`extraArgs`).
+      noSandbox: process.platform === "linux",
       evaluateEnabled: false,
       allowSystemProfileImport: false,
       executablePath,

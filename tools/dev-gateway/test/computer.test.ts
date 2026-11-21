@@ -140,6 +140,7 @@ describe("the browser setup the tool writes", () => {
     expect(c.browser).toEqual({
       enabled: true,
       headless: true,
+      noSandbox: process.platform === "linux",
       evaluateEnabled: false,
       allowSystemProfileImport: false,
       executablePath: CHROMIUM,
@@ -254,6 +255,10 @@ describe("the browser setup the tool writes", () => {
       ["script evaluation on", (c) => (c.browser!.evaluateEnabled = true)],
       ["profile import on", (c) => (c.browser!.allowSystemProfileImport = true as never)],
       ["a headed browser", (c) => (c.browser!.headless = false)],
+      [
+        "the sandbox switched the other way",
+        (c) => (c.browser!.noSandbox = process.platform !== "linux"),
+      ],
       ["another executable", (c) => (c.browser!.executablePath = "/Applications/Some Browser")],
       [
         "a profile's own data folder",

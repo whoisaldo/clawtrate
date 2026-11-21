@@ -62,7 +62,8 @@ export function readRecord(path: string): RunRecord | null {
         (entry) =>
           (entry?.name === `e2e-${record.run}` ||
             entry?.name === `e2e-${record.run}-other` ||
-            entry?.name === `e2e-${record.run}-acct`) &&
+            entry?.name === `e2e-${record.run}-acct` ||
+            entry?.name === `e2e-${record.run}-computer`) &&
           typeof entry.runId === "string" &&
           /^[0-9a-f]{48}$/.test(entry.runId),
       ) &&
@@ -171,4 +172,76 @@ export function recoverDeadRuns(
     const problems = cleanUp(dir, record, reset, identify);
     for (const problem of problems) log(problem);
   }
+}
+
+/** `playwright test` options (1.65.1) that take a value, so the value is not read as a file filter. */
+const VALUE_OPTIONS = new Set([
+  "--add-reporter",
+  "--browser",
+  "-c",
+  "--config",
+  "--global-timeout",
+  "-g",
+  "--grep",
+  "-G",
+  "--grep-invert",
+  "--last-failed-file",
+  "--max-failures",
+  "--output",
+  "--repeat-each",
+  "--reporter",
+  "--retries",
+  "--run-agents",
+  "--shard",
+  "--test-list",
+  "--test-list-invert",
+  "--timeout",
+  "--trace",
+  "--tsconfig",
+  "--ui-host",
+  "--ui-port",
+  "--update-source-method",
+  "-j",
+  "--workers",
+]);
+/** Options whose value is optional: they take the next argument unless it is another option. */
+const OPTIONAL_VALUE_OPTIONS = new Set([
+  "--debug",
+  "--only-changed",
+  "--shuffle",
+  "-u",
+  "--update-snapshots",
+]);
+/** `--project <project-name...>` takes every argument up to the next option. */
+const LIST_OPTIONS = new Set(["--project"]);
+
+/**
+ * Whether this `playwright test` run may run `file`: true unless it names file filters and
+ * none matches it (Playwright reads each filter, less a `:line[:column]` suffix, as a pattern
+ * against the file's path).
+ */
+export function runIncludes(argv: readonly string[], file: string): boolean {
+  const start = argv.indexOf("test");
+  const args = start === -1 ? [] : argv.slice(start + 1);
+  const filters: string[] = [];
+  const isOption = (arg: string | undefined) => arg !== undefined && arg.startsWith("-");
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") continue;
+    if (arg.startsWith("-")) {
+      if (VALUE_OPTIONS.has(arg)) i++;
+      else if (OPTIONAL_VALUE_OPTIONS.has(arg) && !isOption(args[i + 1])) i++;
+      else if (LIST_OPTIONS.has(arg)) while (i + 1 < args.length && !isOption(args[i + 1])) i++;
+      continue;
+    }
+    filters.push(/^(.*?):(\d+):?(\d+)?$/.exec(arg)?.[1] ?? arg);
+  }
+  if (filters.length === 0) return true;
+  return filters.some((filter) => {
+    try {
+      return new RegExp(filter).test(file);
+    } catch {
+      return file.includes(filter);
+    }
+  });
 }
