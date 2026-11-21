@@ -380,6 +380,9 @@ export function browserConfig(
   };
 }
 
+/** What `--trust-loopback-proxy` sets `gateway.trustedProxies` to, and nothing wider. */
+export const LOOPBACK_PROXIES = ["127.0.0.1", "::1"] as const;
+
 /** What a start adds to the base config, beyond plugins. */
 export type StartOptions = {
   /** The scripted provider accounts (accounts.ts); named instances only. */
@@ -390,6 +393,13 @@ export type StartOptions = {
    * a first pairing on loopback does when nobody has changed the setting.
    */
   defaultLocalPairing?: boolean;
+  /**
+   * Set `gateway.trustedProxies` to loopback, so a loopback connection that
+   * carries `X-Forwarded-For` counts as one through a trusted proxy (remote)
+   * instead of being refused; named instances only. For research into a relay
+   * connector on the gateway's own computer.
+   */
+  trustLoopbackProxy?: boolean;
 };
 
 /** The config the development gateway runs with. Written fresh by every start. */
@@ -421,6 +431,7 @@ export function devConfig(
       // Require explicit approval even on loopback, so the pairing flow is real,
       // unless this instance was started to see the gateway's own default.
       ...(options.defaultLocalPairing ? {} : { nodes: { pairing: { autoApproveLocal: false } } }),
+      ...(options.trustLoopbackProxy ? { trustedProxies: [...LOOPBACK_PROXIES] } : {}),
     },
     discovery: { mdns: { mode: "off" } },
     update: { checkOnStart: false },
@@ -729,6 +740,12 @@ function recordedPlugins(inst: DevInstance): DevPlugin[] {
 /** What this run of the instance was started with besides plugins, beside its run file. */
 const startOptionsFile = (inst: DevInstance) => join(inst.runDir, "start-options.json");
 
+const RECORDED_START_OPTIONS: string[] = [
+  "accounts",
+  "defaultLocalPairing",
+  "trustLoopbackProxy",
+] satisfies (keyof StartOptions)[];
+
 export function recordedStartOptions(inst: { runDir: string }): StartOptions {
   const path = join(inst.runDir, "start-options.json");
   if (!existsSync(path)) return {};
@@ -737,9 +754,11 @@ export function recordedStartOptions(inst: { runDir: string }): StartOptions {
     recorded === null ||
     typeof recorded !== "object" ||
     Array.isArray(recorded) ||
-    Object.keys(recorded).some((key) => key !== "accounts" && key !== "defaultLocalPairing") ||
-    !["boolean", "undefined"].includes(typeof (recorded as StartOptions).accounts) ||
-    !["boolean", "undefined"].includes(typeof (recorded as StartOptions).defaultLocalPairing)
+    Object.keys(recorded).some((key) => !RECORDED_START_OPTIONS.includes(key)) ||
+    RECORDED_START_OPTIONS.some(
+      (key) =>
+        !["boolean", "undefined"].includes(typeof (recorded as Record<string, unknown>)[key]),
+    )
   ) {
     throw new Error(`${path} is not a record of start options`);
   }
@@ -1027,6 +1046,7 @@ export async function start(
     plugins?: string[];
     accounts?: boolean;
     defaultLocalPairing?: boolean;
+    trustLoopbackProxy?: boolean;
     /** A paired machine: the gateway's own node host (`scripted-node.ts`); named instances only. */
     node?: boolean;
   } = {},
@@ -1045,9 +1065,15 @@ export async function start(
       "the default instance always requires explicit pairing; use --instance <name> with --default-local-pairing",
     );
   }
+  if (options.trustLoopbackProxy && inst.name === null) {
+    throw new Error(
+      "the default instance never trusts a proxy; use --instance <name> with --trust-loopback-proxy",
+    );
+  }
   const startOptions: StartOptions = {
     ...(options.accounts ? { accounts: true } : {}),
     ...(options.defaultLocalPairing ? { defaultLocalPairing: true } : {}),
+    ...(options.trustLoopbackProxy ? { trustLoopbackProxy: true } : {}),
   };
   // Refused before anything changes: a name that is not this checkout's own
   // plugin, or whose addition breaks the rule for plugins.
@@ -2095,7 +2121,7 @@ export async function lockOrder(
 }
 
 const USAGE =
-  "usage: pnpm dev-gateway <start|up|seed|routines|approve [requestId]|status|stop|reset> [--instance <name>] [--no-seed] [--run-id <id>] [--with-accounts] [--default-local-pairing] [--with-node] [--with-plugin <plugin>]...\n" +
+  "usage: pnpm dev-gateway <start|up|seed|routines|approve [requestId]|status|stop|reset> [--instance <name>] [--no-seed] [--run-id <id>] [--with-accounts] [--default-local-pairing] [--trust-loopback-proxy] [--with-node] [--with-plugin <plugin>]...\n" +
   "       pnpm dev-gateway lock --instance <name> --agent <bot> --provider <provider> <profileId>\n" +
   "       pnpm dev-gateway unlock --instance <name> --agent <bot> --provider <provider>\n" +
   "       pnpm dev-gateway <list [--json]|prune>   (every instance on this machine)";
@@ -2112,6 +2138,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       "with-accounts": { type: "boolean", default: false },
       "with-node": { type: "boolean", default: false },
       "default-local-pairing": { type: "boolean", default: false },
+      "trust-loopback-proxy": { type: "boolean", default: false },
       agent: { type: "string" },
       provider: { type: "string" },
     },
@@ -2148,8 +2175,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     process.exitCode = command ? 1 : 0;
     return;
   }
-  if (values["default-local-pairing"] && command !== "start" && command !== "up") {
-    throw new Error(`--default-local-pairing is a start option; ${command} does not take it`);
+  for (const option of ["default-local-pairing", "trust-loopback-proxy"] as const) {
+    if (values[option] && command !== "start" && command !== "up") {
+      throw new Error(`--${option} is a start option; ${command} does not take it`);
+    }
   }
   const inst = openInstance(selected);
   const runId = values["run-id"];
@@ -2162,6 +2191,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         plugins: values["with-plugin"] ?? [],
         accounts: values["with-accounts"],
         defaultLocalPairing: values["default-local-pairing"],
+        trustLoopbackProxy: values["trust-loopback-proxy"],
         node: values["with-node"],
       });
     case "stop":

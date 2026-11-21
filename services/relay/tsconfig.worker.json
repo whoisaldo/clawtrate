@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": [
+    "src/core/**/*.ts",
+    "src/worker/**/*.ts",
+    "test/fixtures/worker.ts",
+    "test/fixtures/faults.ts",
+    "test/fixtures/registration-contract.ts"
+  ]
+}

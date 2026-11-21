@@ -2,10 +2,15 @@ packages:
   - packages/*
   - apps/*
   - tools/*
+  - services/*
 # Electron 45 downloads its binary the first time it runs, so its install
 # script is declined explicitly. pnpm fails installs with unreviewed scripts.
 # electron-winstaller comes with electron-builder for Squirrel installers; the
 # Windows build uses NSIS, so its script (picking a bundled 7-Zip) is not needed.
+# esbuild and workerd are the relay's local Worker runtime (wrangler dev, Miniflare);
+# their scripts check the platform binary and fetch it from npm only if it is missing.
 allowBuilds:
   electron: false
   electron-winstaller: false
+  esbuild: true
+  workerd: true

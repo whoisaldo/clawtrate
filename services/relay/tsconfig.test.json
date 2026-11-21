@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src/core/**/*.ts", "src/node/**/*.ts", "test/**/*.ts"],
+  // The Worker fixture is checked with the Workers types instead.
+  "exclude": ["test/fixtures/worker.ts"]
+}

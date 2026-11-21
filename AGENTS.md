@@ -61,6 +61,9 @@ The name Clawtrate and the slogan "Your OpenClaw agents, orchestrated." are fixe
 - `packages/ui` (`@clawtrate/ui`) holds the React interface shared by the desktop app, the web preview and the fixture mode.
 - `apps/desktop` is the Electron app: the main process, the preload script, the renderer entry, the web preview host, the fixture mode and the packaging configuration. The same renderer also runs in a browser through the web preview host, for remote review and self-hosted web use.
 - The Expo iOS app will live in `apps/mobile` and consume `packages/core`. It is not on `main` yet.
+- `packages/relay-protocol` (`@clawtrate/relay-protocol`) holds the wire protocol for reaching a gateway through Clawtrate's relay: frames, relay messages, the connector's register proof and the Noise IK channel. Like shared core, it uses no Node or DOM APIs.
+- `services/relay` (`@clawtrate/relay`) is the relay itself: a Cloudflare Worker with a Durable Object per relay id, and a Node runner, on one core. It is run locally only; nothing deploys it yet.
+- `packages/connector` (`@clawtrate/connector`) is `clawtrate-connector`, the Node program that runs next to a person's gateway: it keeps a control socket open to the relay, ends each phone's Noise channel, refuses phones it has not enrolled, and bridges the gateway's protocol over a loopback socket it builds itself with `X-Forwarded-For`. It is run locally only; nothing installs it yet.
 - `plugins/` holds OpenClaw plugins that fill gateway gaps.
 - `tools/dev-gateway` starts, seeds and resets development gateways and runs the scripted model. `tools/brand` makes the icons from the logo.
 - `e2e/` holds the end-to-end tests, `e2e-packaged/` the launch check for a packaged app, `visual/` the visual tests and their macOS baselines, and `test/` the repository-wide unit tests, such as the parity check.

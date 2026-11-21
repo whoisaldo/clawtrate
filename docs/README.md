@@ -18,6 +18,9 @@ Every document in the repository, by what you want to do.
 - [Architecture](architecture.md): the pieces and how they talk to each other.
 - [Decisions](decisions.md): versions, protocol choices and the reasons behind them.
 - [The engine's guide](../packages/core/README.md): the bridge, the commands the interface sends and the state it reads, for building the interface on `@clawtrate/core`.
+- [The relay protocol](../packages/relay-protocol/README.md): frames, relay messages, the connector's register proof and the end-to-end Noise channel for reaching a gateway through the relay.
+- [The relay](../services/relay/README.md): the Worker and the Node runner that splice a phone to a connector, their limits, and what they keep across hibernation.
+- [The connector](../packages/connector/README.md): `clawtrate-connector` next to the gateway: its commands, the pairing code, the gateway bridge and its `X-Forwarded-For` rule, `gateway.trustedProxies`, supervision and its state folder.
 - [The development gateway tool](../tools/dev-gateway/README.md): scripted provider accounts, sign-ins and the account checks.
 - [The computer plugin](../plugins/clawtrate-computer/README.md): a bot's own browser, watched live and taken over by a person.
 - [The rules plugin](../plugins/clawtrate-tool-rules/README.md): what each bot may do with its tools, asked first or never, while the plugin runs.
@@ -45,6 +48,8 @@ Every document in the repository, by what you want to do.
 - [Provider accounts and T3 Code](research/provider-accounts-and-t3-code.md): how OpenClaw handles provider accounts, and how a bot can work with T3 Code.
 - [The setup flow](research/setup-flow.md): first pairing, setup codes, the gateway's identity, installing and removing OpenClaw, SSH from a shipped app, and Tailscale, from OpenClaw's source and live runs.
 - `research/setup-flow/`: the probe behind the setup flow note.
+- [A relay connector](research/relay.md): how the gateway treats a connection a relay connector forwards on its own computer, with and without `X-Forwarded-For` and a trusted loopback proxy, live on development instances.
+- `research/relay/`: the probe behind the relay note.
 - [Search](research/search.md): what the gateway's message search matches, its order and limits, what a narrower search finds, its cost, and the file and routine lists, from OpenClaw's source and a development instance.
 - `research/search/`: the probe behind the search note.
 - [Addresses a gateway hands the client](research/remote-content.md): every picture, link, file, page and sign-in address a gateway can hand Clawtrate, who writes it, what each app does with it today, and what Electron, the browser and iOS can enforce.

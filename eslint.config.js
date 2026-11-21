@@ -18,6 +18,8 @@ export default tseslint.config(
       "docs/design/prototype/**",
       // Git-ignored local working folder; never part of the repository.
       ".orchestrator/**",
+      // Wrangler's local build and state.
+      "**/.wrangler/**",
     ],
   },
   js.configs.recommended,
@@ -41,6 +43,34 @@ export default tseslint.config(
       "no-restricted-imports": [
         "error",
         { patterns: [{ group: ["node:*"], message: "core is shared; put Node code in src/node" }] },
+      ],
+      "no-restricted-globals": ["error", "window", "document", "process", "Buffer", "require"],
+    },
+  },
+  {
+    // The relay protocol runs in Workers, Node, Electron and Hermes, so it uses neither.
+    files: ["packages/relay-protocol/src/**/*.ts"],
+    languageOptions: { globals: {} },
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { patterns: [{ group: ["node:*"], message: "the relay protocol runs outside Node too" }] },
+      ],
+      "no-restricted-globals": ["error", "window", "document", "process", "Buffer", "require"],
+    },
+  },
+  {
+    // The relay's core runs in a Durable Object and in Node, so it uses neither runtime's APIs.
+    files: ["services/relay/src/core/**/*.ts"],
+    languageOptions: { globals: {} },
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["node:*", "cloudflare:*"], message: "the relay core runs in both runtimes" },
+          ],
+        },
       ],
       "no-restricted-globals": ["error", "window", "document", "process", "Buffer", "require"],
     },

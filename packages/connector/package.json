@@ -1,0 +1,27 @@
+{
+  "name": "@clawtrate/connector",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "clawtrate-connector": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "start": "node src/cli.ts"
+  },
+  "dependencies": {
+    "@clawtrate/relay-protocol": "workspace:*",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "qrcode-generator": "2.0.4",
+    "ws": "8.22.2"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/ws": "8.18.2"
+  }
+}

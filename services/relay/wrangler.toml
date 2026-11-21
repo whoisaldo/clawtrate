@@ -1,0 +1,24 @@
+# Local development only: `pnpm --filter @clawtrate/relay dev:worker` runs the relay in
+# Miniflare on 127.0.0.1:8787. There is no account, route or deploy setting here; deploying is
+# a separate, later step (R8).
+name = "clawtrate-relay-local"
+main = "src/worker/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = false
+
+[dev]
+ip = "127.0.0.1"
+port = 8787
+local_protocol = "http"
+
+[vars]
+RELAY_ORIGIN = "ws://127.0.0.1:8787"
+RELAY_ALLOW_LOOPBACK_WS = "1"
+
+[[durable_objects.bindings]]
+name = "RELAY_ROOM"
+class_name = "RelayRoomObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoomObject"]
