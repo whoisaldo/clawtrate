@@ -35,9 +35,11 @@ const user = (text: string, agent = "pip"): ChatMessage => ({
 describe("scenario selection", () => {
   it("gives every scenario a unique directive and phrase, each selecting itself", () => {
     expect(new Set(SCENARIOS.map((s) => s.name)).size).toBe(SCENARIOS.length);
-    expect(new Set(SCENARIOS.map((s) => s.phrase)).size).toBe(SCENARIOS.length);
+    const phrased = SCENARIOS.filter((s) => s.phrase !== undefined);
+    expect(new Set(phrased.map((s) => s.phrase)).size).toBe(phrased.length);
     for (const scenario of SCENARIOS) {
       expect(selectScenarios(`#${scenario.name}`)[0]?.scenario.name).toBe(scenario.name);
+      if (scenario.phrase === undefined) continue;
       const said = `Please ${scenario.phrase.toUpperCase()}, thanks.`;
       expect(selectScenarios(said).map((s) => s.scenario.name)).toEqual([scenario.name]);
     }

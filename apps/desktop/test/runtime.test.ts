@@ -31,6 +31,7 @@ import {
   startHostRuntime,
 } from "../src/host/runtime.ts";
 import { startWebHost } from "../src/web-host/server.ts";
+import { provenEndpoint } from "../../../tools/dev-gateway/src/endpoint.ts";
 import { NAMED_PORT_BLOCK, NAMED_PORT_RANGE } from "../../../tools/dev-gateway/src/instance.ts";
 import { portFree } from "../../../tools/dev-gateway/src/registry.ts";
 
@@ -199,6 +200,19 @@ describe("development eligibility needs proof, not two agreeing files (A1)", () 
     }
     expect(devRunDir("/repo", "alpha")).toBe("/repo/tools/dev-gateway/.run/instances/alpha");
     expect(devRunDir("/repo")).toBe("/repo/tools/dev-gateway/.run");
+  });
+
+  it("refuses a proven endpoint when the caller pinned a different run", () => {
+    const { home, runDir, repoRoot, runId, url } = provenCheckout("alpha");
+    const options = { instance: "alpha", home, runDir, checkout: repoRoot };
+    expect(provenEndpoint({ ...options, expectedRunId: runId })).toEqual({
+      instance: "alpha",
+      url,
+      token: "t",
+    });
+    expect(provenEndpoint({ ...options, expectedRunId: "f".repeat(48) })).toEqual({
+      refusal: "the instance restarted during this operation",
+    });
   });
 
   it("refuses a run file and a connection file that agree when there is no marker", () => {

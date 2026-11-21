@@ -184,6 +184,11 @@ export class OperatorSession {
 
   /** The terminal `chat` event of a run. */
   terminal(runId: string, timeoutMs = 90_000): Promise<JsonRecord> {
+    return this.terminalEvent(runId, timeoutMs).then((event) => asRecord(event.payload));
+  }
+
+  /** The terminal event with its recorded arrival time. */
+  terminalEvent(runId: string, timeoutMs = 90_000): Promise<GatewayEvent> {
     return this.waitFor(
       `the end of run ${runId}`,
       (event) =>
@@ -191,7 +196,7 @@ export class OperatorSession {
         asRecord(event.payload).runId === runId &&
         TERMINAL_CHAT_STATES.includes(String(asRecord(event.payload).state)),
       timeoutMs,
-    ).then((event) => asRecord(event.payload));
+    );
   }
 
   /** `chat.send` a message and return its run id. */

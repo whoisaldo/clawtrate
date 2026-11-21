@@ -30,6 +30,8 @@ export function provenEndpoint(options: {
   /** This checkout, as the tool records it (a real path). */
   checkout: string;
   identify?: Identify;
+  /** If set, prove the same run for the life of an operation. */
+  expectedRunId?: string;
 }): ProvenEndpoint | { refusal: string } {
   const instance = options.instance === null ? null : validateInstanceName(options.instance);
   const stateDir = stateDirFor(instance, options.home);
@@ -43,6 +45,9 @@ export function provenEndpoint(options: {
   const run = readRunRecord(join(options.runDir, "state.json"));
   if (!runMatches(run, marker, instance, options.checkout)) {
     return { refusal: "this checkout's run file does not match the instance's current run" };
+  }
+  if (options.expectedRunId !== undefined && run!.runId !== options.expectedRunId) {
+    return { refusal: "the instance restarted during this operation" };
   }
   const port = instance === null ? DEFAULT_GATEWAY_PORT : marker.gatewayPort;
   if (run!.gatewayPort !== port) return { refusal: "the recorded gateway ports disagree" };

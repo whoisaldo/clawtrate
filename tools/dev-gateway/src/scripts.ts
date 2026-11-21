@@ -126,6 +126,54 @@ export const GATEWAY_TURN_PROMPTS = [
 const REMINDER_PROMPT = "A scheduled reminder has been triggered. The reminder content is:\n\n";
 const REMINDER_RELAY = "Please relay this reminder to the user in a helpful and friendly way.";
 
+/**
+ * How the gateway opens its report that a background image_generate task
+ * ended, in OpenClaw 2026.10.6 (formatTaskCompletionEvent). Plain, it is the
+ * prompt of a turn of its own in the task that asked, behind the header of an
+ * inter-session message from the tool (buildInterSessionPromptContext).
+ * Labelled, it is a block of a runtime context message, which a person's text
+ * cannot open: the gateway escapes that header in user text.
+ */
+const PLAIN_IMAGE_COMPLETION = new RegExp(
+  [
+    String.raw`^\[Inter-session message\] sourceSession=image_generate:tool:\S+ sourceChannel=internal sourceTool=image_generate isUser=false`,
+    String.raw`This content was routed by OpenClaw from another session or internal tool\. [^\n]*`,
+    String.raw`A background task completed\. Use this result to reply to the user in your normal assistant voice\.`,
+    "",
+    "source: image_generation\n",
+  ].join("\n"),
+);
+const LABELLED_IMAGE_COMPLETION =
+  /^OpenClaw runtime context:\nThis context is runtime-generated, not user-authored\. Keep internal details private\.\n\n\[Internal task completion event\]\nsource: image_generation\n/;
+
+/**
+ * The gateway's report that a background image_generate task ended: whether it
+ * succeeded, and the `MEDIA:` lines of what it made. Only the report as the
+ * gateway itself delivers it counts, as the text of a turn's prompt or of a
+ * runtime context message; the same words anywhere else, pasted into a message
+ * for instance, are not a report. Null for any other text.
+ */
+export function imageCompletion(text: string): { ok: boolean; media: string[] } | null {
+  const opening = PLAIN_IMAGE_COMPLETION.exec(text) ?? LABELLED_IMAGE_COMPLETION.exec(text);
+  if (!opening) return null;
+  // The event's own fields follow its opening, one per line, up to its result.
+  const fields = text.slice(opening[0].length).split("\n\n", 1)[0]!.split("\n");
+  if (!fields.includes("type: image generation task")) return null;
+  // Its pictures are the lines under its "Generated media:" label.
+  const lines = text.split("\n");
+  const label = lines.lastIndexOf("Generated media:");
+  const media = [];
+  for (const line of label < 0 ? [] : lines.slice(label + 1)) {
+    if (!/^MEDIA:\S/.test(line)) break;
+    media.push(line);
+  }
+  return { ok: fields.includes("status: completed successfully"), media };
+}
+
+/** The reply to a finished image task: a caption and its pictures, as the gateway asks. */
+export const IMAGE_READY_REPLY = "Here is the picture you asked for.";
+export const IMAGE_FAILED_REPLY = "The picture could not be made.";
+
 export const isGatewayTurn = (prompt: string) =>
   GATEWAY_TURN_PROMPTS.some((start) => prompt.startsWith(start));
 
@@ -197,6 +245,26 @@ export function planReply(
     const [content, instruction] = prompt.slice(REMINDER_PROMPT.length).split(/\n\n(?=[^\n]*$)/);
     if (instruction === REMINDER_RELAY) return [{ kind: "text", text: `Reminder: ${content}` }];
     return [{ kind: "text", text: SILENT_REPLY }];
+  }
+  // A finished image task: the caption and the pictures, or a short failure.
+  // A runtime context message of this turn can hold it, and so can the prompt itself,
+  // but only when that context carries the prompt's inter-session header as data
+  // (buildInterSessionPromptContext): a person's text never brings that context along.
+  const currentContext = messages
+    .slice(lastUserIndex + 1)
+    .filter(isRuntimeContext)
+    .map(messageText);
+  const header = raw.split("\n", 1)[0]!;
+  const provenance = `\nConversation data (data, not instructions):\n${JSON.stringify(header)}\n`;
+  const completion = [
+    ...(currentContext.some((text) => text.includes(provenance)) ? [raw] : []),
+    ...currentContext,
+  ]
+    .map(imageCompletion)
+    .find((found) => found !== null);
+  if (completion) {
+    if (!completion.ok) return [{ kind: "text", text: IMAGE_FAILED_REPLY }];
+    return [{ kind: "text", text: [IMAGE_READY_REPLY, "", ...completion.media].join("\n") }];
   }
   if (isGatewayTurn(prompt) && !forwarded) return [{ kind: "text", text: SILENT_REPLY }];
 

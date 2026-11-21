@@ -46,6 +46,11 @@ export const PROVIDER_PORT_OFFSET = 10;
  */
 export const PAGES_PORT_OFFSET = 1;
 export const BROWSER_PORT_OFFSET = 12;
+/**
+ * An instance started with `--with-images` also uses the last port of its
+ * block, from its gateway's, for the stand-in image provider.
+ */
+export const IMAGES_PORT_OFFSET = NAMED_PORT_BLOCK - 1;
 /** Ports a named instance never uses, whatever the range says. */
 export const RESERVED_PORTS: ReadonlySet<number> = new Set([
   DEFAULT_GATEWAY_PORT,

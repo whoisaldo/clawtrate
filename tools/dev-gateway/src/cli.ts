@@ -92,6 +92,7 @@ import {
 } from "./env.ts";
 import {
   BROWSER_PORT_OFFSET,
+  IMAGES_PORT_OFFSET,
   PAGES_PORT_OFFSET,
   PROVIDER_PORT_OFFSET,
   isNamedInstancePort,
@@ -108,6 +109,7 @@ import {
   type InstancePorts,
 } from "./registry.ts";
 import { CODING_AGENT_SERVER } from "./coding-agent-mcp.ts";
+import { IMAGE_API_KEY, IMAGE_MODEL_REF, IMAGE_PROVIDER_ID } from "./scripted-images.ts";
 import { contractProblems, matching, optional, type Contract } from "./contract.ts";
 import { accountStoreProblems } from "./account-stores.ts";
 import {
@@ -390,7 +392,31 @@ export type StartOptions = {
    * a first pairing on loopback does when nobody has changed the setting.
    */
   defaultLocalPairing?: boolean;
+  /**
+   * The stand-in image provider (scripted-images.ts) as the gateway's image
+   * provider, and `image_generate` offered to every bot; named instances only.
+   */
+  images?: boolean;
 };
+
+/** The stand-in image provider's port: the last of the instance's block. */
+export const imagesPort = (ports: InstancePorts) => ports.gatewayPort + IMAGES_PORT_OFFSET;
+
+/**
+ * What `--with-images` adds to the config: the gateway's bundled LiteLLM
+ * image provider pointed at the stand-in on loopback with a made-up key, and
+ * its one model as the image model. No chat model is listed for it.
+ */
+export function imagesConfig(ports: InstancePorts) {
+  return {
+    provider: {
+      baseUrl: `http://127.0.0.1:${imagesPort(ports)}/v1`,
+      apiKey: IMAGE_API_KEY,
+      models: [],
+    },
+    mediaModels: { image: { primary: IMAGE_MODEL_REF } },
+  };
+}
 
 /** The config the development gateway runs with. Written fresh by every start. */
 export function devConfig(
@@ -402,6 +428,7 @@ export function devConfig(
   chromium?: string,
 ) {
   const accounts = options.accounts ? accountsConfig(ports.providerPort, stateDir) : null;
+  const images = options.images ? imagesConfig(ports) : null;
   const owner = plugins.find((plugin) => plugin.botBrowsers);
   const browsers = owner?.botBrowsers
     ? browserConfig(ports, owner.botBrowsers, chromium ?? developmentChromium())
@@ -451,6 +478,8 @@ export function devConfig(
         },
         // The scripted provider accounts' providers, on the same scripted model.
         ...accounts?.providers,
+        // The stand-in image provider, for image_generate only.
+        ...(images ? { [IMAGE_PROVIDER_ID]: images.provider } : {}),
       },
     },
     // Each scripted account's label; the credentials are in the account stores.
@@ -462,6 +491,7 @@ export function devConfig(
         thinkingDefault: "low",
         systemAgent: { agentId: "main" },
         heartbeat: { agentId: "main" },
+        ...(images ? { mediaModels: images.mediaModels } : {}),
       },
       // The bots are declared here so their tool policy is part of the checked
       // config from the first start. Several bots need explicit ownership.
@@ -493,12 +523,16 @@ export function devConfig(
         ...ALLOWED_TOOLS,
         ...plugins.flatMap((plugin) => plugin.tools),
         ...(browsers ? ["browser"] : []),
+        ...(images ? ["image_generate"] : []),
       ],
       // Denied as well, so a change to the allowlist cannot bring them back:
       // tools that reach the network, manage the gateway or its installation,
       // drive a browser or another device, or send through a channel. With
       // bot browsers the browser tool is denied per bot instead (botEntries).
-      deny: DENIED_TOOLS.filter((tool) => !(browsers && tool === "browser")),
+      // With the stand-in image provider, image_generate is offered instead.
+      deny: DENIED_TOOLS.filter(
+        (tool) => !(browsers && tool === "browser") && !(images && tool === "image_generate"),
+      ),
     },
     // The stand-in coding agent: a local command server, no network, run in
     // the instance's own folder.
@@ -726,6 +760,8 @@ function recordedPlugins(inst: DevInstance): DevPlugin[] {
   );
 }
 
+const START_OPTION_KEYS: readonly string[] = ["accounts", "defaultLocalPairing", "images"];
+
 /** What this run of the instance was started with besides plugins, beside its run file. */
 const startOptionsFile = (inst: DevInstance) => join(inst.runDir, "start-options.json");
 
@@ -737,9 +773,11 @@ export function recordedStartOptions(inst: { runDir: string }): StartOptions {
     recorded === null ||
     typeof recorded !== "object" ||
     Array.isArray(recorded) ||
-    Object.keys(recorded).some((key) => key !== "accounts" && key !== "defaultLocalPairing") ||
-    !["boolean", "undefined"].includes(typeof (recorded as StartOptions).accounts) ||
-    !["boolean", "undefined"].includes(typeof (recorded as StartOptions).defaultLocalPairing)
+    Object.keys(recorded).some((key) => !START_OPTION_KEYS.includes(key)) ||
+    START_OPTION_KEYS.some(
+      (key) =>
+        !["boolean", "undefined"].includes(typeof (recorded as Record<string, unknown>)[key]),
+    )
   ) {
     throw new Error(`${path} is not a record of start options`);
   }
@@ -896,20 +934,27 @@ function assertNotInUse(inst: DevInstance): void {
 function instancePortsToCheck(inst: DevInstance): number[] {
   if (inst.name === null) return [GATEWAY_PORT, PROVIDER_PORT];
   const marker = readMarker(inst.stateDir);
-  const ports = [marker?.gatewayPort, marker?.providerPort].filter(isNamedInstancePort);
+  const gatewayPort = isNamedInstancePort(marker?.gatewayPort) ? marker.gatewayPort : null;
+  const providerPort = isNamedInstancePort(marker?.providerPort) ? marker.providerPort : null;
+  const ports = [gatewayPort, providerPort].filter((port): port is number => port !== null);
   // A browser left running on the instance's ports also means it is in use.
+  // Its ports come from the marker's two ports alone, whatever else is recorded.
   let bots: string[] = [];
   try {
     bots = recordedPlugins(inst).find((plugin) => plugin.botBrowsers)?.botBrowsers?.bots ?? [];
   } catch {
     // An unreadable record adds nothing; the processes are checked anyway.
   }
-  if (bots.length > 0 && ports.length === 2) {
+  if (bots.length > 0 && gatewayPort !== null && providerPort !== null) {
     const { pagesPort, defaultCdpPort, botCdpPorts } = browserPorts(
-      { gatewayPort: ports[0]!, providerPort: ports[1]! },
+      { gatewayPort, providerPort },
       bots,
     );
     ports.push(pagesPort, defaultCdpPort, ...botCdpPorts);
+  }
+  // The stand-in image provider's port, when one was recorded.
+  if ((marker?.imagePid !== undefined || marker?.imagePending === true) && gatewayPort !== null) {
+    ports.push(imagesPort({ gatewayPort, providerPort: 0 }));
   }
   return ports;
 }
@@ -1027,6 +1072,7 @@ export async function start(
     plugins?: string[];
     accounts?: boolean;
     defaultLocalPairing?: boolean;
+    images?: boolean;
     /** A paired machine: the gateway's own node host (`scripted-node.ts`); named instances only. */
     node?: boolean;
   } = {},
@@ -1045,9 +1091,15 @@ export async function start(
       "the default instance always requires explicit pairing; use --instance <name> with --default-local-pairing",
     );
   }
+  if (options.images && inst.name === null) {
+    throw new Error(
+      "the default instance never has an image provider; use --instance <name> with --with-images",
+    );
+  }
   const startOptions: StartOptions = {
     ...(options.accounts ? { accounts: true } : {}),
     ...(options.defaultLocalPairing ? { defaultLocalPairing: true } : {}),
+    ...(options.images ? { images: true } : {}),
   };
   // Refused before anything changes: a name that is not this checkout's own
   // plugin, or whose addition breaks the rule for plugins.
@@ -1082,16 +1134,15 @@ export async function start(
         const picked =
           inst.name === null
             ? DEFAULT_PORTS
-            : await choosePorts(
-                inst.name,
-                inst.home,
-                undefined,
-                browserPortOffsets(browserBots.length),
-              );
+            : await choosePorts(inst.name, inst.home, undefined, [
+                ...browserPortOffsets(browserBots.length),
+                ...(options.images ? [IMAGES_PORT_OFFSET] : []),
+              ]);
         for (const port of [
           picked.gatewayPort,
           picked.providerPort,
           ...(browserBots.length > 0 ? browserPortsOf(picked) : []),
+          ...(options.images ? [imagesPort(picked)] : []),
         ]) {
           if (await inst.listening(port)) {
             throw new Error(`port ${port} is in use by a process this tool did not start`);
@@ -1153,6 +1204,32 @@ export async function start(
       );
       closeSync(providerLog);
       await waitFor("the scripted provider", () => inst.listening(ports.providerPort), 10_000);
+      if (options.images) {
+        // The previous start's log is kept beside the new one, so an early exit leaves evidence.
+        const imageLogPath = join(inst.runDir, "image.log");
+        if (existsSync(imageLogPath)) {
+          renameSync(imageLogPath, join(inst.runDir, "image.previous.log"));
+        }
+        const imageLog = openSync(imageLogPath, "w");
+        spawnRecorded(inst, runId, "image", () =>
+          gatedSpawn(
+            inst.spawn,
+            process.execPath,
+            [fileURLToPath(new URL("./images-main.ts", import.meta.url))],
+            {
+              detached: true,
+              stdio: ["ignore", imageLog, imageLog],
+              env: { ...providerEnv(process.env), SCRIPTED_IMAGES_PORT: String(imagesPort(ports)) },
+            },
+          ),
+        );
+        closeSync(imageLog);
+        await waitFor(
+          "the stand-in image provider",
+          () => inst.listening(imagesPort(ports)),
+          10_000,
+        );
+      }
       if (browserBots.length > 0) {
         const { pagesPort } = browserPorts(ports, browserBots);
         await waitFor("the scripted pages", () => inst.listening(pagesPort), 10_000);
@@ -1187,6 +1264,11 @@ export async function start(
       `  scripted model  http://127.0.0.1:${ports.providerPort}/v1 (pid ${marker?.providerPid})`,
     );
     console.log(`  gateway         pid ${marker?.gatewayPid}, logs in ${inst.runDir}`);
+    if (options.images) {
+      console.log(
+        `  image provider  http://127.0.0.1:${imagesPort(ports)}/v1 (pid ${marker?.imagePid}), model ${IMAGE_MODEL_REF}`,
+      );
+    }
     if (options.node) {
       console.log(`  machine         ${SCRIPTED_NODE_NAME}, node host pid ${marker?.nodePid}`);
     }
@@ -1457,9 +1539,10 @@ async function stopLocked(inst: DevInstance): Promise<void> {
   const targets: StopTarget[] = [];
   /** Recorded processes already gone, perhaps ended by an earlier stop: only their ports are checked. */
   const exited: StopTarget[] = [];
-  for (const role of ["node", "gateway", "provider"] as const) {
-    // A start without `--with-node` records no node.
+  for (const role of ["node", "image", "gateway", "provider"] as const) {
+    // A start without `--with-node` records no node, and one without `--with-images` no image process.
     if (role === "node" && marker.nodePid === undefined) continue;
+    if (role === "image" && marker.imagePid === undefined) continue;
     const pid = marker[`${role}Pid`];
     const identity = marker[`${role}Identity`];
     const verdict = processVerdict(pid, identity, inst.identify);
@@ -1470,7 +1553,12 @@ async function stopLocked(inst: DevInstance): Promise<void> {
     }
     if (verdict.state !== "alive" && verdict.state !== "dead") continue;
     // The node host listens on no port of its own.
-    const port = role === "node" ? undefined : marker[`${role}Port`];
+    const port =
+      role === "node"
+        ? undefined
+        : role === "image"
+          ? marker.gatewayPort && imagesPort({ gatewayPort: marker.gatewayPort, providerPort: 0 })
+          : marker[`${role}Port`];
     const target = { role, pid: pid!, identity: identity!, ...(port ? { port } : {}) };
     (verdict.state === "alive" ? targets : exited).push(target);
   }
@@ -1563,7 +1651,9 @@ export async function status(
   log(`instance    ${inst.name ?? "(default)"}`);
   log(`state dir   ${runner.stateDir} (${owner})`);
   const marker = owner === "owned" ? readMarker(runner.stateDir) : null;
-  for (const role of ["provider", "gateway", "node"] as const) {
+  for (const role of ["provider", "gateway", "image", "node"] as const) {
+    if (role === "image" && marker?.imagePid === undefined && marker?.imagePending !== true)
+      continue;
     if (role === "node" && marker?.nodePid === undefined && marker?.nodePending !== true) continue;
     const pid = marker?.[`${role}Pid`];
     const state =
@@ -1836,8 +1926,9 @@ export async function openOperator(
   displayName: string,
   scopes: string[],
   caps: string[],
+  readConnection?: () => DevConnection,
 ): Promise<OperatorSession> {
-  const connection = readDevConnection(inst.connectionFile);
+  const connection = readConnection ? readConnection() : readDevConnection(inst.connectionFile);
   if (!connection) throw new Error(`${label(inst)} has no connection file; start it first`);
   return OperatorSession.open({
     url: connection.url,
@@ -1846,6 +1937,7 @@ export async function openOperator(
     caps,
     displayName,
     approvePairing: async (requestId) => {
+      readConnection?.();
       await must(inst, ["devices", "approve", requestId]);
     },
   });
@@ -2095,7 +2187,7 @@ export async function lockOrder(
 }
 
 const USAGE =
-  "usage: pnpm dev-gateway <start|up|seed|routines|approve [requestId]|status|stop|reset> [--instance <name>] [--no-seed] [--run-id <id>] [--with-accounts] [--default-local-pairing] [--with-node] [--with-plugin <plugin>]...\n" +
+  "usage: pnpm dev-gateway <start|up|seed|routines|approve [requestId]|status|stop|reset> [--instance <name>] [--no-seed] [--run-id <id>] [--with-accounts] [--default-local-pairing] [--with-node] [--with-images] [--with-plugin <plugin>]...\n" +
   "       pnpm dev-gateway lock --instance <name> --agent <bot> --provider <provider> <profileId>\n" +
   "       pnpm dev-gateway unlock --instance <name> --agent <bot> --provider <provider>\n" +
   "       pnpm dev-gateway <list [--json]|prune>   (every instance on this machine)";
@@ -2112,6 +2204,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
       "with-accounts": { type: "boolean", default: false },
       "with-node": { type: "boolean", default: false },
       "default-local-pairing": { type: "boolean", default: false },
+      "with-images": { type: "boolean", default: false },
       agent: { type: "string" },
       provider: { type: "string" },
     },
@@ -2121,16 +2214,6 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
   // The selector is validated before any command runs or any path is built.
   const selected = selectInstance(values.instance, env);
   const [command, ...rest] = positionals;
-  if (command === "list" || command === "prune") {
-    if (selected !== null) {
-      throw new Error(
-        `${command} covers every instance on this machine; it does not take --instance or CLAWTRATE_DEV_INSTANCE`,
-      );
-    }
-    if (command === "list") list({ json: values.json });
-    else await prune();
-    return;
-  }
   const known = [
     "start",
     "up",
@@ -2142,14 +2225,28 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     "approve",
     "lock",
     "unlock",
+    "list",
+    "prune",
   ];
   if (!command || !known.includes(command)) {
     console.log(USAGE);
     process.exitCode = command ? 1 : 0;
     return;
   }
-  if (values["default-local-pairing"] && command !== "start" && command !== "up") {
-    throw new Error(`--default-local-pairing is a start option; ${command} does not take it`);
+  for (const option of ["default-local-pairing", "with-images"] as const) {
+    if (values[option] && command !== "start" && command !== "up") {
+      throw new Error(`--${option} is a start option; ${command} does not take it`);
+    }
+  }
+  if (command === "list" || command === "prune") {
+    if (selected !== null) {
+      throw new Error(
+        `${command} covers every instance on this machine; it does not take --instance or CLAWTRATE_DEV_INSTANCE`,
+      );
+    }
+    if (command === "list") list({ json: values.json });
+    else await prune();
+    return;
   }
   const inst = openInstance(selected);
   const runId = values["run-id"];
@@ -2162,6 +2259,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         plugins: values["with-plugin"] ?? [],
         accounts: values["with-accounts"],
         defaultLocalPairing: values["default-local-pairing"],
+        images: values["with-images"],
         node: values["with-node"],
       });
     case "stop":

@@ -45,6 +45,8 @@ Every document in the repository, by what you want to do.
 - [Provider accounts and T3 Code](research/provider-accounts-and-t3-code.md): how OpenClaw handles provider accounts, and how a bot can work with T3 Code.
 - [The setup flow](research/setup-flow.md): first pairing, setup codes, the gateway's identity, installing and removing OpenClaw, SSH from a shipped app, and Tailscale, from OpenClaw's source and live runs.
 - `research/setup-flow/`: the probe behind the setup flow note.
+- [Image generation](research/image-generation.md): what a client gets back from a bot's image tool, tried with the development gateway's stand-in image provider, and what a bot's picture can be set from.
+- `research/image-generation/`: the probe behind the image generation note.
 - [Search](research/search.md): what the gateway's message search matches, its order and limits, what a narrower search finds, its cost, and the file and routine lists, from OpenClaw's source and a development instance.
 - `research/search/`: the probe behind the search note.
 - [Addresses a gateway hands the client](research/remote-content.md): every picture, link, file, page and sign-in address a gateway can hand Clawtrate, who writes it, what each app does with it today, and what Electron, the browser and iOS can enforce.

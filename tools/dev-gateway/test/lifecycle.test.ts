@@ -3,10 +3,18 @@
 // temporary HOME; OpenClaw and the scripted model are replaced by `sleep`
 // stand-ins, and no real port is probed or bound.
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { list, openInstance, prune, reset, start, stop } from "../src/cli.ts";
+import { imagesPort, list, openInstance, prune, reset, start, stop } from "../src/cli.ts";
 import { GATE_SCRIPT, gatedSpawn, OpenclawRunner } from "../src/env.ts";
 import { stateDirFor } from "../src/instance.ts";
 import { instanceLockPath, lockDir, withLock } from "../src/lock.ts";
@@ -361,7 +369,14 @@ function fakedInstance(home: string, runRoot: string, name: string | null) {
     const marker = readMarker(stateDir);
     if (!marker) return false;
     const role =
-      port === marker.gatewayPort ? "gateway" : port === marker.providerPort ? "provider" : null;
+      port === marker.gatewayPort
+        ? "gateway"
+        : port === marker.providerPort
+          ? "provider"
+          : marker.gatewayPort &&
+              port === imagesPort({ gatewayPort: marker.gatewayPort, providerPort: 0 })
+            ? "image"
+            : null;
     if (!role) return false;
     return (
       processState(marker[`${role}Pid`], marker[`${role}Identity`], processIdentity) === "alive"
@@ -380,6 +395,60 @@ function fakedInstance(home: string, runRoot: string, name: string | null) {
     }),
   });
 }
+
+describe("the stand-in image provider of --with-images", () => {
+  it("starts with the instance, is recorded like its other processes and stops with it", async () => {
+    const home = tempDir("clawtrate-home-");
+    const runRoot = tempDir("clawtrate-run-");
+    const inst = fakedInstance(home, runRoot, "alpha");
+    await start(inst, { seed: false, images: true });
+    const marker = readMarker(inst.stateDir)!;
+    expect(processState(marker.imagePid, marker.imageIdentity, processIdentity)).toBe("alive");
+    expect(marker.imagePending).toBeUndefined();
+    expect(JSON.parse(readFileSync(join(inst.runDir, "start-options.json"), "utf8"))).toEqual({
+      images: true,
+    });
+    const config = JSON.parse(readFileSync(inst.configPath, "utf8")) as {
+      models: { providers: Record<string, { baseUrl: string }> };
+    };
+    expect(config.models.providers.litellm!.baseUrl).toBe(
+      `http://127.0.0.1:${imagesPort({ gatewayPort: marker.gatewayPort!, providerPort: 0 })}/v1`,
+    );
+    await stop(inst);
+    expect(processState(marker.imagePid, marker.imageIdentity, processIdentity)).toBe("dead");
+    expect(processState(marker.gatewayPid, marker.gatewayIdentity, processIdentity)).toBe("dead");
+    await reset(inst);
+    expect(existsSync(inst.stateDir)).toBe(false);
+  });
+
+  it("keeps the previous start's log when it starts again", async () => {
+    const home = tempDir("clawtrate-home-");
+    const inst = fakedInstance(home, tempDir("clawtrate-run-"), "alpha");
+    await start(inst, { seed: false, images: true });
+    await stop(inst);
+    // What an image process that exited early would have left.
+    writeFileSync(join(inst.runDir, "image.log"), "the earlier image process's last words\n");
+    await start(inst, { seed: false, images: true });
+    expect(readFileSync(join(inst.runDir, "image.previous.log"), "utf8")).toBe(
+      "the earlier image process's last words\n",
+    );
+    expect(existsSync(join(inst.runDir, "image.log"))).toBe(true);
+    await reset(inst);
+  }, 30_000);
+
+  it("is not started without the option", async () => {
+    const home = tempDir("clawtrate-home-");
+    const inst = fakedInstance(home, tempDir("clawtrate-run-"), "alpha");
+    await start(inst, { seed: false });
+    const marker = readMarker(inst.stateDir)!;
+    expect([marker.imagePid, marker.imageIdentity, marker.imagePending]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    await reset(inst);
+  });
+});
 
 describe("a start holds the instance's lock until it is finished (B4)", () => {
   it("a stop issued while the gateway is still coming up waits for the start, then stops it", async () => {

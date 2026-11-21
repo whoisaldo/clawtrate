@@ -45,6 +45,7 @@ import { FILES_BOT, PICTURE_PATH, trailMap } from "./seed-files.ts";
 import { DENIED_TOOLS, GATEWAY_TOOLS } from "./cli.ts";
 import { OFFERED_TOOLS_PATH, QUIET_TURNS_PATH } from "./fake-provider.ts";
 import { COMPUTER_CHECKS } from "./computer-checks.ts";
+import { IMAGE_CHECKS } from "./image-checks.ts";
 import { RULES_CHECKS } from "./rules-checks.ts";
 
 type JsonRecord = Record<string, unknown>;
@@ -3323,10 +3324,12 @@ export const SCENARIO_CHECKS: ScenarioCheck[] = [
       const text = view.finalText();
       for (const scenario of SCENARIOS.filter((s) => s.name !== "help")) {
         expect(text.includes(`\`#${scenario.name}`), `#help does not list #${scenario.name}`);
-        expect(
-          text.includes(`"${scenario.phrase}"`),
-          `#help does not give the phrase for #${scenario.name}`,
-        );
+        if (scenario.phrase !== undefined) {
+          expect(
+            text.includes(`"${scenario.phrase}"`),
+            `#help does not give the phrase for #${scenario.name}`,
+          );
+        }
       }
       view.expectCalls([]);
       view.expectEnd("final", scriptedFinalText("#help"));
@@ -3508,10 +3511,13 @@ export const SCENARIO_CHECKS: ScenarioCheck[] = [
 
 /** Directives of the scripted model that no scenario check claims to send. */
 export function uncoveredDirectives(): string[] {
-  // The browser directives are sent by the computer checks, and #message-read
-  // by the rules checks, each on an instance of their own.
+  // The browser directives are sent by the computer checks, #message-read by
+  // the rules checks and the image directives by the image checks, each on an
+  // instance of their own.
   const covered = new Set(
-    [...SCENARIO_CHECKS, ...COMPUTER_CHECKS, ...RULES_CHECKS].flatMap((check) => check.covers),
+    [...SCENARIO_CHECKS, ...COMPUTER_CHECKS, ...RULES_CHECKS, ...IMAGE_CHECKS].flatMap(
+      (check) => check.covers,
+    ),
   );
   return SCENARIOS.map((s) => `#${s.name}`).filter((directive) => !covered.has(directive));
 }

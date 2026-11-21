@@ -21,9 +21,15 @@ import { isNamedInstancePort, validateInstanceName } from "./instance.ts";
 export const MARKER_FILE = ".clawtrate-dev-gateway";
 const CREATED_BY = "clawtrate tools/dev-gateway";
 
-export type ProcessRole = "start" | "provider" | "gateway" | "node";
-export const PROCESS_ROLES: readonly ProcessRole[] = ["start", "provider", "gateway", "node"];
-/** The processes a start spawns and records. `node` only with `--with-node`. */
+export type ProcessRole = "start" | "provider" | "gateway" | "image" | "node";
+export const PROCESS_ROLES: readonly ProcessRole[] = [
+  "start",
+  "provider",
+  "gateway",
+  "image",
+  "node",
+];
+/** The processes a start spawns and records. `image` only with `--with-images`, `node` only with `--with-node`. */
 export type SpawnedRole = Exclude<ProcessRole, "start">;
 
 /** What a start records about itself when it creates the folder. */
@@ -47,11 +53,15 @@ export type Marker = MarkerOrigin & {
   /** Written before the process is spawned; replaced by its PID and identity after. */
   providerPending?: true;
   gatewayPending?: true;
+  imagePending?: true;
   nodePending?: true;
   providerPid?: number;
   providerIdentity?: string;
   gatewayPid?: number;
   gatewayIdentity?: string;
+  /** The stand-in image provider (`--with-images`), when there is one. */
+  imagePid?: number;
+  imageIdentity?: string;
   /** The scripted node host (`--with-node`), when there is one. */
   nodePid?: number;
   nodeIdentity?: string;
