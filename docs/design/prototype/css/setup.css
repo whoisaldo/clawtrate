@@ -495,6 +495,48 @@
   margin: 0 auto 16px;
 }
 
+/* Approve from here (setup.md section 9): the bar's action, the folded command,
+   the host dialog's list of added scopes, and a stand-in composer once granted. */
+.s-approve-row {
+  flex-wrap: wrap;
+}
+
+.access-bar .s-disclosure {
+  margin: 0;
+}
+
+.access-bar .s-disclosure .command {
+  margin-top: 6px;
+}
+
+.s-left {
+  text-align: left;
+}
+
+.s-host-list {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+
+.s-device-inline {
+  font-family: var(--font-mono);
+}
+
+.s-mock-composer {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-radius: 24px;
+  background: var(--bg-inset);
+  color: var(--text-faint);
+}
+
+[data-input="touch"] .s-approve-row .button {
+  min-height: 48px;
+  flex: 1 1 100%;
+}
+
 /* Phone width and the iPhone app. */
 [data-width="phone"] .setup .connect-card,
 [data-input="touch"] .setup .connect-card {
@@ -723,4 +765,19 @@ a.b-choice:hover {
   font-size: var(--text-xs);
   color: var(--text-faint);
   text-align: center;
+}
+
+/* The prototype's stand-in for an event from outside the app (the owner
+   approving on the gateway's computer). Not product. */
+.s-proto-event {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-strong, var(--text-faint));
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.s-approval .scopes {
+  margin: 6px 0;
 }

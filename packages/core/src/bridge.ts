@@ -24,6 +24,7 @@ import {
 import { MAX_TASK_LABEL_CHARS, type ArchivedList, type ArchiveResult } from "./task-actions.ts";
 import type { ClawtrateState, TranscriptItem } from "./types.ts";
 import type { MissingStep } from "./accounts.ts";
+import { MAX_DESTINATION_CHARS, type SetupHost, type SetupOffer } from "./setup.ts";
 import {
   CHECKIN_EVERY,
   MAX_CHECKIN_EVERY_CHARS,
@@ -76,6 +77,21 @@ export type BridgeCommand =
   | { type: "connectDevGateway" }
   /** Forget the gateway at this address, the one the viewer shows; refused if another is selected. */
   | { type: "disconnect"; gatewayUrl: string }
+  /** Setting up on the host's computer (`setup.ts`): look there, stop, pair with what was found, start over. */
+  | { type: "setupLook" }
+  /** Review and Look again after an approval here (setup §9): the saved profile's look alone. */
+  | { type: "setupReviewHere" }
+  | { type: "setupCancel" }
+  | { type: "setupConnect" }
+  | { type: "setupReset" }
+  /** Another computer (`setup.ts`): look there, trust or replace its key, start OpenClaw there. */
+  | { type: "setupThere"; destination: string }
+  | { type: "setupTrustKey" }
+  | { type: "setupReplaceKey" }
+  | { type: "setupStart" }
+  /** The SSH route: restore its forward now, or remove it (each confirmed by the host). */
+  | { type: "setupRetryRoute" }
+  | { type: "setupRemoveRoute" }
   /** Close the connection and keep the gateway and the pairing, until `retry` reconnects. */
   | { type: "suspend" }
   | { type: "retry" }
@@ -84,6 +100,12 @@ export type BridgeCommand =
   /** Ask the gateway's owner for the interactive scopes; shown in `connection.upgrade`. */
   /** Ask the gateway's owner for the interactive tier, or with `tier: "admin"` for admin with it. */
   | { type: "requestAccess"; tier?: "admin" | "pairing" }
+  /** "Stop waiting" (setup §9): this device stops waiting; the gateway's request is left as it is. */
+  | { type: "stopWaiting" }
+  /** "Check now" (setup §9): the host reads the gateway's pending list for this request, where it can. */
+  | { type: "checkAccess" }
+  /** "Stop waiting" on the pairing screen (setup §9): no more retries; the request stays on the gateway. */
+  | { type: "stopPairing" }
   /**
    * Send to a task this viewer has open. Files are not carried in the command:
    * they are added first (web upload path or Electron IPC) and named by id.
@@ -481,6 +503,12 @@ export type HostInfo = {
    * more access and refuses every command that writes.
    */
   readOnly?: boolean;
+  /**
+   * Set when the host offers setup on its own computer (docs/design/setup.md):
+   * the first screen asks where OpenClaw runs. Absent on a host that keeps the
+   * address-and-token form as its first screen, as the web preview does by default.
+   */
+  setup?: SetupOffer;
 };
 
 /** Renderer-side view of the bridge, implemented over IPC or a WebSocket. */
@@ -1040,7 +1068,29 @@ export function parseBridgeCommand(value: unknown): BridgeCommand {
     case "connectDevGateway":
     case "suspend":
     case "retry":
+    case "stopWaiting":
+    case "checkAccess":
+    case "stopPairing":
+    case "setupLook":
+    case "setupReviewHere":
+    case "setupCancel":
+    case "setupConnect":
+    case "setupReset":
+    case "setupTrustKey":
+    case "setupReplaceKey":
+    case "setupStart":
+    case "setupRetryRoute":
+    case "setupRemoveRoute":
       return { type: command.type };
+    case "setupThere": {
+      // Bounded here; the host validates it against the destination pattern.
+      if (
+        typeof command.destination !== "string" ||
+        command.destination.length > MAX_DESTINATION_CHARS
+      )
+        throw new Error("That isn't an SSH host or alias Clawtrate can use.");
+      return { type: "setupThere", destination: command.destination };
+    }
     case "sendMessage": {
       const ids = command.attachmentIds ?? [];
       if (
@@ -1397,6 +1447,8 @@ export type BridgePolicy = {
   maxResultChars?: number;
   /** Tasks one viewer may hold open: `MAX_VIEWER_OPEN_TASKS` unless the host sets fewer. */
   maxOpenTasks?: number;
+  /** Setting up on the host's own computer, where the host offers it. */
+  setup?: SetupHost;
 };
 
 /**
@@ -1501,6 +1553,50 @@ class ViewerSession implements BridgeSession {
         return client.connect(policy.devGateway);
       case "disconnect":
         return client.disconnect(command.gatewayUrl);
+      case "setupLook":
+      case "setupReviewHere":
+      case "setupCancel":
+      case "setupConnect":
+      case "setupReset": {
+        const setup = policy.setup;
+        if (!setup) throw new Error("This host doesn't set up OpenClaw on its computer.");
+        if (command.type === "setupLook") return setup.look();
+        // Never a general look instead: another profile is never shown for the saved one (§9).
+        if (command.type === "setupReviewHere") {
+          if (!setup.reviewHere)
+            throw new Error("This host doesn't look again at a gateway set up on its computer.");
+          return setup.reviewHere();
+        }
+        if (command.type === "setupConnect") return setup.connect();
+        if (command.type === "setupCancel") return setup.cancel();
+        return setup.reset();
+      }
+      case "setupThere":
+      case "setupTrustKey":
+      case "setupReplaceKey":
+      case "setupStart":
+      case "setupRetryRoute":
+      case "setupRemoveRoute": {
+        const setup = policy.setup;
+        const missing = () => {
+          throw new Error("This host doesn't reach another computer over SSH.");
+        };
+        if (!setup) return missing();
+        switch (command.type) {
+          case "setupThere":
+            return setup.there ? setup.there(command.destination) : missing();
+          case "setupTrustKey":
+            return setup.trustKey ? setup.trustKey() : missing();
+          case "setupReplaceKey":
+            return setup.replaceKey ? setup.replaceKey() : missing();
+          case "setupStart":
+            return setup.start ? setup.start() : missing();
+          case "setupRetryRoute":
+            return setup.retryRoute ? setup.retryRoute() : missing();
+          default:
+            return setup.removeRoute ? setup.removeRoute() : missing();
+        }
+      }
       case "suspend":
         return client.suspend();
       case "retry":
@@ -1517,6 +1613,12 @@ class ViewerSession implements BridgeSession {
         return;
       case "requestAccess":
         return client.requestAccess(command.tier ?? "interactive");
+      case "stopWaiting":
+        return client.stopWaiting();
+      case "checkAccess":
+        return client.checkAccess();
+      case "stopPairing":
+        return client.stopPairing();
       case "refreshRoutines":
         return client.refreshRoutines();
       case "readBotRoutines":

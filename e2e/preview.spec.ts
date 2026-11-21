@@ -1303,7 +1303,7 @@ test("F-456: a refused request leaves the read tier as it was; an approved one g
   // Asked only when the person chooses to; the owner refuses it on the gateway's machine.
   expect(await pendingRequests()).toEqual([]);
   await bar.getByRole("button", { name: "Request access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.");
+  await expect(bar).toContainText("Waiting for approval.");
   await expect(bar.locator(".command code")).toHaveText(
     `pnpm dev-gateway approve --instance ${INSTANCE}`,
   );
@@ -1319,7 +1319,7 @@ test("F-456: a refused request leaves the read tier as it was; an approved one g
 
   // Asked again and approved: the composer takes the bar's place.
   await bar.getByRole("button", { name: "Request again" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.");
+  await expect(bar).toContainText("Waiting for approval.");
   devGateway(INSTANCE, "approve");
   await expect(composer(page)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("region", { name: "Access" })).toHaveCount(0);

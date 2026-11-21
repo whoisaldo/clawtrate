@@ -16,11 +16,13 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  safeStorage,
   session,
   shell,
   type WebContents,
 } from "electron";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,6 +37,19 @@ import {
   startHostRuntime,
   type HostRuntime,
 } from "../host/runtime.ts";
+import { SetupController } from "../setup/controller.ts";
+import { SetupRouter, SetupSlice } from "../setup/host.ts";
+import { chooseDataDir, sshTransportFor } from "../setup/private-dir.ts";
+import { RemoteSetup, type HostAnswer, type HostQuestion } from "../setup/remote.ts";
+import { RouteStore, routedStorage, type TokenSeal } from "../setup/routes.ts";
+import { productionWorld as sshProductionWorld } from "./ssh/world.ts";
+import { SshTransport } from "./ssh/transport.ts";
+import { ProgramRunner } from "../setup/programs.ts";
+import { resolveSetupLaunch, sandboxOpener, type Opened } from "../setup/sandbox.ts";
+import { startSyntheticGateway } from "../setup/synthetic-gateway.ts";
+import { desktopStartup } from "../setup/startup.ts";
+import { processIdentity } from "../../../../tools/dev-gateway/src/state-guard.ts";
+import { accountHome, productionWorld, type SetupRefusedError } from "../setup/world.ts";
 
 app.setName("Clawtrate");
 // On Windows, the taskbar button belongs to the installer's shortcuts from the first window.
@@ -78,6 +93,149 @@ function openExternally(raw: string): void {
 
 let runtime: HostRuntime | null = null;
 let window: BrowserWindow | null = null;
+/** The programs setup started, ended by PID when the app quits. */
+const programs = new ProgramRunner();
+let closeSetup: () => Promise<void> = async () => {};
+/** Ends the SSH route's forward and every `ssh` the host started, by PID. */
+let closeRemote: () => Promise<void> = async () => {};
+
+/** Whether a command-line switch was given, to Chromium or to the app. */
+function hasSwitch(name: string): boolean {
+  return (
+    app.commandLine?.hasSwitch(name) === true ||
+    process.argv.some((arg) => arg === `--${name}` || arg.startsWith(`--${name}=`))
+  );
+}
+
+/** A switch's value, given to Chromium or to the app; empty when it has none. */
+function switchValue(name: string): string {
+  return app.commandLine?.getSwitchValue(name) ?? "";
+}
+
+/**
+ * How this launch sets up on this computer (docs/development/setup.md),
+ * resolved before the single-instance lock and the host runtime: the real
+ * computer for a packaged app nothing automates; otherwise only the sandbox
+ * the launch names, checked now, or a refusal.
+ */
+const SETUP = resolveSetupLaunch({
+  packaged: app.isPackaged,
+  env: process.env,
+  switches: hasSwitch,
+  switchValue,
+  context: { platform: process.platform, home: accountHome(), uid: process.getuid?.() ?? null },
+});
+
+/**
+ * What the host starts on, from that launch, also before the lock: a sandbox's
+ * checked `app-data` or, refused, the folder the launch named with
+ * `--user-data-dir` or else a fresh private temporary folder as its data
+ * folder, and then no development gateway and no saved gateway reopened.
+ * Only a person's packaged app keeps the ordinary data folder and resumes.
+ */
+const STARTUP = desktopStartup(SETUP, {
+  packaged: app.isPackaged,
+  devConnection: () =>
+    readDevConnection(REPO_ROOT, { instance: selectInstance(undefined, process.env) }),
+  autoConnectDev: () => process.env.CLAWTRATE_AUTOCONNECT_DEV === "1",
+  launchData: () => switchValue("user-data-dir") || null,
+  privateData: () => mkdtempSync(join(tmpdir(), "clawtrate-refused-")),
+});
+if (STARTUP.userData) app.setPath("userData", STARTUP.userData);
+
+/**
+ * The checkout whose run records prove a sandbox's run: this development
+ * build's own; a packaged app is told by its launch check.
+ */
+function launcherCheckout(): string | null {
+  const path = app.isPackaged ? switchValue("clawtrate-setup-checkout") : REPO_ROOT;
+  try {
+    return path ? realpathSync(path) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What each look and Connect opens: the real computer, the sandbox, or the refusal. */
+function setupOpener(): {
+  open: () => Promise<Opened | SetupRefusedError>;
+  close: () => Promise<void>;
+} {
+  const close = async () => {};
+  if (SETUP.kind === "refused") return { open: async () => SETUP.error, close };
+  if (SETUP.kind === "sandbox") {
+    return sandboxOpener({
+      file: SETUP.file,
+      sandbox: SETUP.sandbox,
+      platform: process.platform,
+      context: {
+        platform: process.platform,
+        home: accountHome(),
+        uid: process.getuid?.() ?? null,
+        checkout: launcherCheckout(),
+      },
+      startGateway: startSyntheticGateway,
+      log: (line) => console.log(line),
+    });
+  }
+  // The real computer; on Windows the look starts nothing.
+  const home = accountHome();
+  return {
+    open: async () => ({
+      world: productionWorld({
+        home: home ?? "",
+        appData: app.getPath("userData"),
+        platform: process.platform,
+        lang: process.env.LANG,
+      }),
+      run: programs.run,
+      identify: processIdentity,
+    }),
+    close,
+  };
+}
+
+/** The host's own confirmation (docs/design/setup.md §2): a native dialog, never the page. */
+async function askNatively(question: HostQuestion): Promise<HostAnswer> {
+  const options = {
+    type: "question" as const,
+    message: question.message,
+    detail: question.detail,
+    buttons: [question.confirm, "Cancel"],
+    defaultId: question.checkbox ? 1 : 0,
+    cancelId: 1,
+    noLink: true,
+    ...(question.checkbox ? { checkboxLabel: question.checkbox, checkboxChecked: false } : {}),
+  };
+  const owner = window && !window.isDestroyed() ? window : null;
+  const answer = owner
+    ? await dialog.showMessageBox(owner, options)
+    : await dialog.showMessageBox(options);
+  return { confirmed: answer.response === 0, checked: answer.checkboxChecked === true };
+}
+
+async function confirmNatively(confirmation: {
+  message: string;
+  detail: string;
+  confirm: string;
+}): Promise<boolean> {
+  return (await askNatively(confirmation)).confirmed;
+}
+
+/**
+ * The SSH transport of a person's app, made once, only after its data folder,
+ * its `ssh` folder and every folder above them are proven private, and made
+ * only below a proven parent (`sshTransportFor`, docs/design/setup.md §2
+ * rule 3). A development build or an automated run never reaches another
+ * computer: its SSH world would be this account's real one.
+ */
+function sshTransport(
+  dataDir: string,
+): SshTransport | { refused: "app-files-unsafe" | "not-supported" } {
+  return sshTransportFor(dataDir, (dir) => new SshTransport(sshProductionWorld(dir)), {
+    log: (line) => console.log(line),
+  });
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -210,12 +368,49 @@ async function saveHeld(
   }
 }
 
+/**
+ * A route's device token, encrypted with Electron's `safeStorage` before it is
+ * written: the system keychain on macOS, the desktop's secret service on
+ * Linux. Linux's plain-text fallback is no encryption, so no token is kept there.
+ */
+function systemSeal(): TokenSeal {
+  return {
+    available: () => {
+      try {
+        if (!safeStorage.isEncryptionAvailable()) return false;
+        return (
+          process.platform !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text"
+        );
+      } catch {
+        return false;
+      }
+    },
+    seal: (plain) => safeStorage.encryptString(plain).toString("base64"),
+    open: (sealed) => {
+      try {
+        return safeStorage.decryptString(Buffer.from(sealed, "base64"));
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
 /** The device key and tokens live here, readable by this user only. */
-function privateDataDir(): string {
-  const dir = process.env.CLAWTRATE_DATA_DIR ?? join(app.getPath("userData"), "gateway");
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if (process.platform !== "win32") chmodSync(dir, 0o700);
-  return dir;
+function privateDataDir(): string | null {
+  // Only a person's app takes its folder from the environment; every other run keeps its own.
+  const chosen = SETUP.kind === "production" ? process.env.CLAWTRATE_DATA_DIR : undefined;
+  const dir = chosen ?? join(app.getPath("userData"), "gateway");
+  // Proven first and made only below a proven parent; a folder that can't be proven is left as
+  // it is, and nothing is kept below it (`chooseDataDir`).
+  const choice = chooseDataDir(dir);
+  if (choice.ok) return choice.dir;
+  console.log(`[setup] The data folder isn't proven private (${choice.reason} at ${choice.at}).`);
+  dialog.showErrorBox(
+    "Clawtrate can't keep its data private",
+    `Clawtrate keeps this device's key and pairings in ${dir}, and another account could change that folder or one above it. Clawtrate didn't change it. Make the folders above it yours alone, then open Clawtrate again.`,
+  );
+  return null;
 }
 
 async function main(): Promise<void> {
@@ -225,17 +420,38 @@ async function main(): Promise<void> {
     app.dock?.setIcon(join(RESOURCES, "icon-mac.png"));
   }
 
-  const devInstance = selectInstance(undefined, process.env);
+  const devInstance = STARTUP.devGateway ? selectInstance(undefined, process.env) : null;
+  const dataDir = privateDataDir();
+  if (dataDir === null) {
+    app.quit();
+    return;
+  }
+  // A route's device token is encrypted by the system before it is written (Keychain on macOS,
+  // the desktop's secret service on Linux); where it can't be, no token is kept and SSH doesn't pair.
+  const routes = new RouteStore(dataDir, {
+    seal: systemSeal(),
+    onEvict: (record) => remote?.forgetEvicted(record),
+  });
+  // Set once the setup host exists: where a request is approved, and a route's word on an address.
+  let router: SetupRouter | null = null;
+  let remote: RemoteSetup | null = null;
   runtime = await startHostRuntime({
     kind: "desktop",
     displayName: "Clawtrate Desktop",
-    dataDir: privateDataDir(),
-    // Only development builds look for the local development gateway.
-    // CLAWTRATE_DEV_INSTANCE selects a named development instance. Its address
-    // is opened only while this checkout can still prove it, before every attempt.
-    devGateway: app.isPackaged ? null : readDevConnection(REPO_ROOT, { instance: devInstance }),
+    dataDir,
+    wrapStorage: (store) => routedStorage(store, routes),
+    approvalPlace: (url) => router?.placeFor(url) ?? null,
+    readBack: async (url, request) => (router ? router.readBack(url, request) : null),
+    routeAllows: (url) => remote?.allows(url) ?? null,
+    // A route's channel is reached only on its forward's own local socket.
+    routeSocket: (url) => remote?.socketFor(url) ?? null,
+    reopenRoute: async (route) => remote?.reopen(route),
+    // A sandboxed or refused start (every development build and automated run) has no
+    // development gateway, doesn't auto-connect and never resumes a saved gateway.
+    devGateway: STARTUP.devGateway,
     recheckDevGateway: () => readDevConnection(REPO_ROOT, { instance: devInstance }),
-    autoConnectDev: process.env.CLAWTRATE_AUTOCONNECT_DEV === "1",
+    autoConnectDev: STARTUP.autoConnectDev,
+    resume: STARTUP.resume,
   });
   const { client, info, policy } = runtime;
   const userDir = app.getPath("userData");
@@ -259,6 +475,38 @@ async function main(): Promise<void> {
   );
   ipcMain.handle("clawtrate:update:track", (_event, track: unknown) => updates.chooseTrack(track));
   ipcMain.handle("clawtrate:update:download", (_event, id: unknown) => updates.download(id));
+  // Setup on this computer. A development build and every automated run look only in a sandbox.
+  const opener = setupOpener();
+  closeSetup = opener.close;
+  const slice = new SetupSlice(client);
+  const setup = new SetupController({
+    client,
+    open: opener.open,
+    stopPrograms: () => programs.stopAll(),
+    confirm: confirmNatively,
+    log: (line) => console.log(line),
+    publish: (next) => slice.setMain(next),
+  });
+  // Another computer only in a person's app: never with this account's real SSH files otherwise.
+  // Windows has no local socket the host can prove private for the forward: no SSH route there.
+  const ssh =
+    SETUP.kind === "production" && (process.platform === "darwin" || process.platform === "linux");
+  remote = ssh
+    ? new RemoteSetup({
+        client,
+        transport: () => sshTransport(dataDir),
+        routes,
+        ask: askNatively,
+        publish: (next) => slice.setMain(next),
+        publishRoute: (route) => slice.setRoute(route),
+        log: (line) => console.log(line),
+      })
+    : null;
+  closeRemote = () => remote?.closeAll() ?? Promise.resolve();
+  router = new SetupRouter(setup, remote);
+  policy.setup = router;
+  info.setup = { look: true, pair: true, platform: process.platform, ssh };
+  if (remote && STARTUP.resume) void remote.resume();
 
   ipcMain.handle("clawtrate:hello", (): { info: HostInfo; state: ClawtrateState } => ({
     info,
@@ -343,7 +591,31 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin" || process.env.CLAWTRATE_SCREENSHOT) app.quit();
 });
 
-app.on("before-quit", () => runtime?.client.stop());
+/** How long quitting waits for the SSH forward and every `ssh` the host started to end. */
+const QUIT_WAIT_MS = 5_000;
+let quitting: "no" | "waiting" | "done" = "no";
+
+app.on("before-quit", (event) => {
+  if (quitting === "done") return;
+  if (quitting === "waiting") {
+    event.preventDefault();
+    return;
+  }
+  // The SSH children end first, by PID, within a bound; then the app quits as before.
+  event.preventDefault();
+  quitting = "waiting";
+  programs.stopAll();
+  void closeSetup();
+  runtime?.client.stop();
+  const bound = new Promise<void>((resolve) => setTimeout(resolve, QUIT_WAIT_MS));
+  // An approval's token and gateway, committed together or both put back, within the same bound.
+  const settled = runtime?.client.settled() ?? Promise.resolve();
+  const closed = Promise.all([closeRemote().catch(() => undefined), settled]);
+  void Promise.race([closed, bound]).finally(() => {
+    quitting = "done";
+    app.quit();
+  });
+});
 
 // One app per data folder: a second launch focuses the running window and exits.
 if (app.requestSingleInstanceLock()) {

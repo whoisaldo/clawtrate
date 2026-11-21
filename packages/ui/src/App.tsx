@@ -1,5 +1,6 @@
-import type { ConnectionError, HostInfo } from "@clawtrate/core";
+import { isApprovalDisconnect, type ConnectionError, type HostInfo } from "@clawtrate/core";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { OpenSettingsContext } from "./settings-open.tsx";
 import { useBridge, useClawtrateState } from "./bridge.tsx";
 import { ConnectScreen } from "./ConnectScreen.tsx";
 import { readPreference, useBubbles, useTheme } from "./preferences.ts";
@@ -50,6 +51,7 @@ export function App({
   const { desktopUpdates } = useBridge();
   const updated = useDesktopUpdateSnapshot(desktopUpdates);
   const [openUpdates, setOpenUpdates] = useState(false);
+  const [openGateway, setOpenGateway] = useState(false);
   useInputAndMotion();
   // The theme applies on every screen; the gateway menu in the shell changes it.
   const [theme, setTheme] = useTheme();
@@ -57,12 +59,15 @@ export function App({
   // Settings opens over either screen, with Cmd/Ctrl+, or from the gateway menu.
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsOpener = useRef<HTMLElement | null>(null);
-  const openSettings = useCallback((section?: "updates") => {
+  const openSettings = useCallback((section?: "updates" | "gateway") => {
     setOpenUpdates(section === "updates");
+    setOpenGateway(section === "gateway");
     const active = document.activeElement as HTMLElement | null;
     settingsOpener.current = active && active !== document.body ? active : null;
     setSettingsOpen(true);
   }, []);
+  // Review on an address route: Settings on its Gateway pane, whichever pane was shown last.
+  const openGatewaySettings = useCallback(() => openSettings("gateway"), [openSettings]);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     const opener = settingsOpener.current;
@@ -99,7 +104,21 @@ export function App({
   else if (mismatch && (status === "connected" || status === "idle" || status === "pairing")) {
     setMismatch(null);
   }
-  const screen = mismatch ? "connect" : screenFor(state);
+  // Connected through setup opens the app only once the bots were read (docs/design/setup.md §7).
+  // After an approval Clawtrate couldn't confirm, "Look again" and "Review" open the route's own
+  // look (§9, §6): its screens show while that look is under way or shown.
+  const approvalLook =
+    info.setup !== undefined &&
+    isApprovalDisconnect(state.connection.error?.code) &&
+    state.setup !== undefined &&
+    state.setup.phase !== "idle" &&
+    state.setup.phase !== "done";
+  const setupHolds =
+    info.setup !== undefined &&
+    (approvalLook ||
+      state.setup?.phase === "connecting" ||
+      (state.setup?.phase === "failed" && state.setup.failure?.kind === "bots"));
+  const screen = mismatch || setupHolds ? "connect" : screenFor(state);
   // When one screen replaces another and takes focus with it, focus the first
   // control of the new one. Not on launch: nothing had focus to lose.
   const shown = useRef(screen);
@@ -123,30 +142,35 @@ export function App({
           accounts={state.accounts}
           checkIns={state.checkIns}
           bots={state.bots}
+          route={state.setup?.route ?? null}
           updateReading={updated}
           initialUpdates={openUpdates}
+          initialGateway={openGateway}
           onClose={closeSettings}
         />
       )}
       {screen === "shell" ? (
-        <Shell
-          state={state}
-          info={info}
-          theme={theme}
-          onTheme={setTheme}
-          bubbles={bubbles}
-          onBubbles={setBubbles}
-          onUnreadCount={onUnreadCount}
-          updateEntry={showUpdateFooter(updated.snapshot, updated.pending)}
-          onOpenSettings={openSettings}
-          inert={settingsOpen}
-          onCaughtUp={setCaughtUp}
-        />
+        <OpenSettingsContext.Provider value={openGatewaySettings}>
+          <Shell
+            state={state}
+            info={info}
+            theme={theme}
+            onTheme={setTheme}
+            bubbles={bubbles}
+            onBubbles={setBubbles}
+            onUnreadCount={onUnreadCount}
+            updateEntry={showUpdateFooter(updated.snapshot, updated.pending)}
+            onOpenSettings={openSettings}
+            inert={settingsOpen}
+            onCaughtUp={setCaughtUp}
+          />
+        </OpenSettingsContext.Provider>
       ) : (
         <ConnectScreen
           connection={state.connection}
           discovery={state.discovery}
           info={info}
+          setup={state.setup}
           mismatch={mismatch}
           inert={settingsOpen}
         />

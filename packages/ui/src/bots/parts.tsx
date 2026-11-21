@@ -2,7 +2,7 @@
 // results, the waiting line, commands and codes with their copy buttons, the
 // model and effort selects, the access bar for admin, and the announcer.
 
-import type { ConnectionState, HostInfo } from "@clawtrate/core";
+import { APPROVAL_WORDS, type ConnectionState, type HostInfo } from "@clawtrate/core";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useCommand } from "../bridge.tsx";
 import { copyText } from "../clipboard.ts";
@@ -17,6 +17,8 @@ import {
   WarnIcon,
 } from "../icons.tsx";
 import { CopyValue } from "../AccessBar.tsx";
+import { approvalShelf, WaitingRow } from "../ApprovalWait.tsx";
+import { useOpenSettings } from "../settings-open.tsx";
 
 /** A sentence on a soft fill: neutral, something to act on, or a failure. */
 export function Note({
@@ -266,7 +268,8 @@ export function askingAdmin(connection: ConnectionState): boolean {
  * The access bar of conversation.md section 3, asking for admin, with this
  * screen's words (bots.md section 2). The command and the request id are the
  * host's. The engine waits on the gateway's answer continuously, as the
- * conversation's bar says, so there is no "Check now" and no countdown.
+ * conversation's bar says, so there is no countdown; "Check now" and "Stop
+ * waiting" are setup.md §9's.
  */
 export function AdminBar({
   connection,
@@ -278,6 +281,7 @@ export function AdminBar({
   need: string;
 }) {
   const send = useCommand();
+  const openSettings = useOpenSettings();
   const ask = () => void send({ type: "requestAccess", tier: "admin" }).catch(() => {});
   const upgrade = connection.upgrade;
   const mine = askingAdmin(connection);
@@ -286,28 +290,21 @@ export function AdminBar({
   let body: ReactNode;
   let action: ReactNode = null;
   let tone: "danger" | undefined;
+  const shelf =
+    info.readOnly || !mine
+      ? null
+      : approvalShelf(connection, send, ask, "sm", info.setup !== undefined, openSettings);
   if (info.readOnly) {
     body = (
       <>
         <b>Read-only.</b> {need} This connection only reads.
       </>
     );
+  } else if (shelf) {
+    body = shelf.body;
+    action = shelf.action;
+    tone = shelf.tone;
   } else if (status === "requesting") body = "Asking the gateway…";
-  else if (status === "approved")
-    body = (
-      <>
-        <b>Approved.</b> Connecting again with the new access…
-      </>
-    );
-  else if (status === "pending")
-    body = (
-      <>
-        <b>Waiting for the gateway's owner.</b>
-        {upgrade.approveCommand
-          ? " Approve this request on the gateway's machine:"
-          : " The owner approves this request on the gateway's machine."}
-      </>
-    );
   else if (status === "rejected") {
     body = (
       <>
@@ -354,7 +351,7 @@ export function AdminBar({
       </button>
     );
   }
-  if (connection.status !== "connected" || info.readOnly) action = null;
+  if ((connection.status !== "connected" && !shelf?.offline) || info.readOnly) action = null;
   const pending = status === "pending";
   return (
     <section
@@ -380,12 +377,13 @@ export function AdminBar({
           This changes by itself as soon as the owner approves or denies the request, or it expires.
         </p>
       )}
-      {pending && upgrade.requestId && (
-        <div className="access-id">
-          <span className="mono">Request {upgrade.requestId.slice(0, 8)}</span>
-          <CopyValue value={upgrade.requestId} label="Copy request id" />
-          {upgrade.approveNote && <span>{upgrade.approveNote}</span>}
-        </div>
+      {pending && (
+        <WaitingRow
+          upgrade={upgrade}
+          copy={
+            upgrade.requestId && <CopyValue value={upgrade.requestId} label="Copy request id" />
+          }
+        />
       )}
     </section>
   );
@@ -411,7 +409,21 @@ export function useGranted(connection: ConnectionState): boolean {
   return granted;
 }
 
-export function GrantedBar() {
+/** How long the bar says the gateway now shows the access, after a wait it lost, before Granted. */
+export const RECOVERED_FOR_MS = 2000;
+
+/**
+ * Granted. After a wait this device lost (`nowShown`, setup §9), it first
+ * says, once, in its live region, that the gateway now shows the requested
+ * access.
+ */
+export function GrantedBar({ nowShown = false }: { nowShown?: boolean }) {
+  const [recovered, setRecovered] = useState(nowShown);
+  useEffect(() => {
+    if (!recovered) return;
+    const timer = setTimeout(() => setRecovered(false), RECOVERED_FOR_MS);
+    return () => clearTimeout(timer);
+  }, [recovered]);
   return (
     <section
       className="access-bar"
@@ -423,7 +435,13 @@ export function GrantedBar() {
       <div className="access-row">
         <CheckIcon />
         <span className="shelf-text" role="status">
-          <b>Admin access granted.</b> You can change this now.
+          {recovered ? (
+            APPROVAL_WORDS.nowShown
+          ) : (
+            <>
+              <b>Admin access granted.</b> You can change this now.
+            </>
+          )}
         </span>
       </div>
     </section>

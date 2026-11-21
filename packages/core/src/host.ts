@@ -1,6 +1,8 @@
 // What a host process provides to the core. Core itself uses no DOM and no
 // Node APIs, so the same code runs in Electron's main process, plain Node and Expo.
 
+import type { ReadBack, ReadBackRequest } from "./approval.ts";
+
 /**
  * Async key/value persistence. Values are strings; core stores JSON. `set` and
  * `delete` resolve only once the change is kept; a change that could not be kept
@@ -44,7 +46,14 @@ export type ClientIdentity = {
   platform: string;
 };
 
-export type ApprovalInstructions = { command: string; note: string | null };
+export type ApprovalInstructions = {
+  command: string;
+  note: string | null;
+  /** The waiting line's head, naming where the request waits (setup §9): "Waiting for approval on devbox." */
+  title?: string | null;
+  /** The computer the request waits on, as the words name it: "devbox", "this computer". */
+  where?: string | null;
+};
 
 export type ClawtrateHost = {
   createWebSocket: WebSocketFactory;
@@ -58,5 +67,23 @@ export type ClawtrateHost = {
    * How to approve a pairing request on this gateway. The host knows whether the
    * gateway is the local development one; core falls back to the generic command.
    */
-  approvalInstructions?: (gatewayUrl: string, requestId: string) => ApprovalInstructions;
+  approvalInstructions?: (
+    gatewayUrl: string,
+    requestId: string,
+    /** The profile the host's look found this connection's gateway for on this computer, as kept with it. */
+    here?: { profile: "default" | "clawtrate" } | null,
+    /** The connection is an explicit address the person typed or pasted: no place is named for it. */
+    address?: boolean,
+  ) => ApprovalInstructions;
+  /**
+   * Where the host has a shell on the gateway's computer (this computer, an
+   * SSH route): establish the endpoint and its version for the route's
+   * profile again, read the gateway's identity there and, only when it is
+   * `expected`, its device list, at the verified loopback endpoint, through
+   * the gateway (setup §9). A null answer: the host has no shell for this
+   * address. Only an explicit address route may have none; for any other,
+   * the client takes it as an identity it couldn't read. Reads only: it never
+   * changes the gateway.
+   */
+  readBack?: (gatewayUrl: string, request: ReadBackRequest) => Promise<ReadBack | null>;
 };

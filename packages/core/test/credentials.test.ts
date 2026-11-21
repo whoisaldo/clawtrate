@@ -63,7 +63,11 @@ describe("a credential never crosses gateways", () => {
     expect(JSON.parse(storage.data.get(tokenKey(URL_B))!).token).toBe("token-B");
     expect(storage.data.has(tokenKey(URL_A))).toBe(false);
     // B's settings keep B's URL; A's late hello did not touch them.
-    expect(JSON.parse(storage.data.get("connection")!)).toEqual({ url: URL_B, token: null });
+    expect(JSON.parse(storage.data.get("connection")!)).toEqual({
+      url: URL_B,
+      token: null,
+      address: true,
+    });
     gateway.dropAll();
     await until(() => gateway.connects.length >= 3);
     const auth = connectAuth(gateway, gateway.connects.length - 1);
@@ -98,7 +102,11 @@ describe("a credential never crosses gateways", () => {
     await until(() => client.state.connection.status === "pairing");
     storage.release(tokenKey(URL_A));
     await sleep(30);
-    expect(JSON.parse(storage.data.get("connection")!)).toEqual({ url: URL_B, token: "boot-B" });
+    expect(JSON.parse(storage.data.get("connection")!)).toEqual({
+      url: URL_B,
+      token: "boot-B",
+      address: true,
+    });
     client.stop();
   });
 
@@ -208,41 +216,34 @@ describe("losing access is represented and recoverable (B1)", () => {
     client.stop();
   });
 
-  it("asks again for a scope a capped grant left out, rather than waiting forever", async () => {
+  it("a capped grant isn't kept: it disconnects and saves no new token, rather than holding part of it (setup §9)", async () => {
     const gateway = new FakeGateway();
     gateway.connectReply = (params) => {
       const { scopes, auth } = params as ConnectParams;
       return { ok: true, payload: helloOk(scopes, auth?.deviceToken ?? "device-token") };
     };
-    let requests = 0;
-    const waits = [deferred<unknown>(), deferred<unknown>()];
-    gateway.handlers["device.scopes.requestUpgrade"] = () => ({
-      requestId: `up-${(requests += 1)}`,
-    });
-    gateway.handlers["device.scopes.waitUpgrade"] = () => waits[requests - 1]!.promise;
+    const wait = deferred<unknown>();
+    gateway.handlers["device.scopes.requestUpgrade"] = () => ({ requestId: "up-1" });
+    gateway.handlers["device.scopes.waitUpgrade"] = () => wait.promise;
     gateway.handlers["question.list"] = () => ({ questions: [] });
     for (const method of ["exec.approval.list", "plugin.approval.list", "openclaw.approval.list"]) {
       gateway.handlers[method] = () => [];
     }
     const { client, storage } = await openTask({ gateway, held: READ_SCOPES });
+    const saved = storage.data.get(tokenKey(URL_A));
     await client.requestAccess();
-    await until(() => requests === 1);
+    await until(() => client.state.connection.upgrade.status === "pending");
     // The owner's role policy caps the grant at read and write.
-    waits[0]!.resolve({
+    wait.resolve({
       status: "approved",
       requestId: "up-1",
       deviceToken: "rotated",
       scopes: ["operator.read", "operator.write"],
     });
-    await until(() => client.state.connection.canWrite);
-    expect(client.state.connection.requestedScopes).toEqual(["operator.read", "operator.write"]);
-    expect(client.state.connection.canAnswer).toBe(false);
-    expect(JSON.parse(storage.data.get(tokenKey(URL_A))!).heldScopes).toEqual([
-      "operator.read",
-      "operator.write",
-    ]);
-    // Read access is kept throughout.
-    expect(client.state.connection.scopes).toContain("operator.read");
+    await until(() => client.state.connection.status === "error");
+    expect(client.state.connection.upgrade.status).toBe("unconfirmed");
+    expect(storage.data.get(tokenKey(URL_A))).toBe(saved);
+    expect(JSON.stringify(client.state)).not.toContain("rotated");
     client.stop();
   });
 });

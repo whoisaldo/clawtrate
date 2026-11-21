@@ -94,7 +94,7 @@ const SCENES: Scene[] = [
     ready: async (page) => {
       await accountStep(page);
       await page.getByRole("button", { name: "Request admin access" }).click();
-      await expect(page.getByTestId("admin-bar")).toContainText("Waiting for the gateway's owner.");
+      await expect(page.getByTestId("admin-bar")).toContainText("Waiting for approval.");
     },
   },
   { name: "newbot-account-empty", query: `${ADMIN}&accounts=none`, ready: accountStep },

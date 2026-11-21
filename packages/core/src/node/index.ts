@@ -124,15 +124,28 @@ export type NodeHostOptions = {
   client: ClientIdentity;
   log?: ClawtrateHost["log"];
   approvalInstructions?: ClawtrateHost["approvalInstructions"];
+  /** The host's read-back on the gateway's computer after an approval (setup §9). */
+  readBack?: ClawtrateHost["readBack"];
+  /** Wraps the file store: the desktop host keeps each route's device token in its route store. */
+  wrapStorage?: (store: KeyValueStore) => KeyValueStore;
+  /**
+   * The host's own socket for an address it holds (an SSH route's forward), or
+   * null for any other address, which gets the built-in WebSocket.
+   */
+  routeSocket?: (url: string) => WebSocketLike | null;
 };
 
 export function createNodeHost(options: NodeHostOptions): ClawtrateHost {
   return {
-    createWebSocket: (url) => new WebSocket(url) as unknown as WebSocketLike,
-    storage: createFileStore(join(options.dataDir, "state.json")),
+    createWebSocket: (url) =>
+      options.routeSocket?.(url) ?? (new WebSocket(url) as unknown as WebSocketLike),
+    storage: (options.wrapStorage ?? ((store) => store))(
+      createFileStore(join(options.dataDir, "state.json")),
+    ),
     signer: createFileSigner(join(options.dataDir, "device-key.pem")),
     client: options.client,
     ...(options.log ? { log: options.log } : {}),
     ...(options.approvalInstructions ? { approvalInstructions: options.approvalInstructions } : {}),
+    ...(options.readBack ? { readBack: options.readBack } : {}),
   };
 }

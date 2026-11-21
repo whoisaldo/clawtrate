@@ -28,6 +28,12 @@ export type RunRecord = {
   hostPending?: true;
   host: Proc | null;
   dirs: string[];
+  /**
+   * The SSH approval check's own `sshd` (apps/desktop/test/ssh), by PID and
+   * start identity, with its folder, whose name carries this run's id: written
+   * as soon as the daemon starts, before anything else uses it.
+   */
+  sshd?: Proc & { dir: string };
 };
 
 const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -62,11 +68,21 @@ export function readRecord(path: string): RunRecord | null {
         (entry) =>
           (entry?.name === `e2e-${record.run}` ||
             entry?.name === `e2e-${record.run}-other` ||
-            entry?.name === `e2e-${record.run}-acct`) &&
+            entry?.name === `e2e-${record.run}-acct` ||
+            // The setup checks' own instance, recorded by e2e/setup.spec.ts.
+            entry?.name === `e2e-${record.run}-setup` ||
+            // The approval checks' own (setup §9): e2e/approve-readback.engine.spec.ts, and
+            // apps/desktop/test/ssh/approve-readback-route.test.ts over the test's own sshd.
+            entry?.name === `e2e-${record.run}-approve` ||
+            entry?.name === `e2e-${record.run}-approve-ssh`) &&
           typeof entry.runId === "string" &&
           /^[0-9a-f]{48}$/.test(entry.runId),
       ) &&
-      Array.isArray(record.dirs)
+      Array.isArray(record.dirs) &&
+      (record.sshd === undefined ||
+        (isProc(record.sshd) &&
+          isRunTempDir(record.sshd.dir) &&
+          basename(record.sshd.dir).startsWith(`${TEMP_PREFIX}ssh-approve-${record.run}-`)))
     ) {
       return record;
     }
@@ -76,9 +92,20 @@ export function readRecord(path: string): RunRecord | null {
   return null;
 }
 
-/** A temporary folder a run may have created: directly in the system temp folder, with our prefix. */
+/**
+ * The short temporary folder of macOS, where a test whose Unix sockets must
+ * have short paths makes its folder (apps/desktop/test/ssh/harness.ts `tempDir`).
+ */
+const SHORT_TEMP = process.platform === "darwin" ? "/private/tmp" : null;
+
+/**
+ * A temporary folder a run may have created: directly in the system temp
+ * folder, or macOS's short one, with our prefix.
+ */
 export const isRunTempDir = (dir: unknown): dir is string =>
-  typeof dir === "string" && dirname(dir) === tmpdir() && basename(dir).startsWith(TEMP_PREFIX);
+  typeof dir === "string" &&
+  (dirname(dir) === tmpdir() || (SHORT_TEMP !== null && dirname(dir) === SHORT_TEMP)) &&
+  basename(dir).startsWith(TEMP_PREFIX);
 
 /**
  * Remove everything a record lists, synchronously, so it also works from a
@@ -97,6 +124,35 @@ export function cleanUp(
   hostStopMs = 10_000,
 ): string[] {
   const problems: string[] = [];
+  // The test's sshd first, only while it is the recorded process, and its folder only once it exited.
+  let sshdGone = true;
+  if (record.sshd) {
+    const { pid, identity } = record.sshd;
+    let verdict = processVerdict(pid, identity, identify);
+    if (verdict.state === "alive") {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        // Gone between the check and the signal, or not ours to signal: asked again below.
+      }
+      const deadline = Date.now() + hostStopMs;
+      verdict = processVerdict(pid, identity, identify);
+      while (verdict.state !== "dead" && Date.now() < deadline) {
+        sleepSync(100);
+        verdict = processVerdict(pid, identity, identify);
+      }
+    }
+    if (verdict.state !== "dead") {
+      sshdGone = false;
+      problems.push(
+        verdict.state === "alive"
+          ? `the test's sshd (pid ${pid}) did not exit after SIGTERM; its folder is kept`
+          : `could not determine whether the test's sshd (pid ${pid}) is running: ${verdict.reason}; its folder is kept`,
+      );
+    } else if (isRunTempDir(record.sshd.dir)) {
+      rmSync(record.sshd.dir, { recursive: true, force: true });
+    }
+  }
   // A pending host without a record never ran: its gate opens only after the record.
   let hostGone = true;
   if (record.host) {
@@ -122,6 +178,8 @@ export function cleanUp(
   }
   if (hostGone) {
     for (const path of record.dirs) {
+      // The sshd's folder goes only with the sshd, above.
+      if (path === record.sshd?.dir && !sshdGone) continue;
       if (isRunTempDir(path)) rmSync(path, { recursive: true, force: true });
     }
   }

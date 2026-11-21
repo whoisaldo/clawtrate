@@ -643,7 +643,11 @@ describe("connecting", () => {
     const last = gateway.connects.at(-1) as { auth?: { token?: string; deviceToken?: string } };
     expect(last.auth?.token ?? last.auth?.deviceToken).toBe("device-token");
     await until(() => JSON.parse(storage.data.get("connection")!).token === null);
-    expect(JSON.parse(storage.data.get("connection")!)).toEqual({ url: URL, token: null });
+    expect(JSON.parse(storage.data.get("connection")!)).toEqual({
+      url: URL,
+      token: null,
+      address: true,
+    });
     client.stop();
   });
 

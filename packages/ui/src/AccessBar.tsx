@@ -3,17 +3,21 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useCommand } from "./bridge.tsx";
 import { copyText } from "./clipboard.ts";
 import { CommandLine } from "./ConnectScreen.tsx";
+import { approvalShelf, WaitingRow } from "./ApprovalWait.tsx";
+import { useOpenSettings } from "./settings-open.tsx";
 import { CheckIcon, CopyIcon, EyeIcon } from "./icons.tsx";
 
 /**
  * What stands in the composer's place on the read tier (conversation.md,
  * section 3). One request covers sending, stopping and answering; it is made
  * only when the person chooses "Request access", never silently, and never
- * for admin. The command and the request id are the host's. The engine waits
- * on the gateway's answer continuously (`device.scopes.waitUpgrade`), so the
- * bar says it updates by itself and offers no "Check now" and no countdown;
- * nor "Cancel request", since the gateway has no way to withdraw a request
- * it holds.
+ * for admin. The words for where the request waits, the command and the
+ * request id are the host's (setup.md §9). The engine waits on the gateway's
+ * answer continuously (`device.scopes.waitUpgrade`), so the bar says it
+ * updates by itself; where the host can look at the gateway's computer it
+ * also checks the pending list on a schedule, and the bar says when next,
+ * with "Check now". "Stop waiting" stops this device's wait, never "Cancel
+ * request", since the gateway has no way to withdraw a request it holds.
  */
 export function AccessBar({
   bot,
@@ -25,13 +29,21 @@ export function AccessBar({
   info: HostInfo;
 }) {
   const send = useCommand();
+  const openSettings = useOpenSettings();
   const ask = () => void send({ type: "requestAccess" }).catch(() => {});
   const upgrade = connection.upgrade;
 
   let tone: "danger" | undefined;
   let body: ReactNode;
   let action: ReactNode = null;
-  if (info.readOnly) {
+  const shelf = info.readOnly
+    ? null
+    : approvalShelf(connection, send, ask, undefined, info.setup !== undefined, openSettings);
+  if (shelf) {
+    body = shelf.body;
+    action = shelf.action;
+    tone = shelf.tone;
+  } else if (info.readOnly) {
     body = (
       <>
         <b>Read-only.</b> You can follow {bot}'s work here. Approvals and questions aren't shown on
@@ -42,23 +54,6 @@ export function AccessBar({
     switch (upgrade.status) {
       case "requesting":
         body = "Asking the gateway…";
-        break;
-      case "approved":
-        body = (
-          <>
-            <b>Approved.</b> Connecting again with the new access…
-          </>
-        );
-        break;
-      case "pending":
-        body = (
-          <>
-            <b>Waiting for the gateway's owner.</b>
-            {upgrade.approveCommand
-              ? " Approve this request on the gateway's machine:"
-              : " The owner approves this request on the gateway's machine."}
-          </>
-        );
         break;
       case "rejected":
         body = (
@@ -97,7 +92,7 @@ export function AccessBar({
           </button>
         );
         break;
-      case "idle":
+      default:
         body = (
           <>
             <b>Read-only.</b> You can follow {bot}'s work here. Approvals and questions aren't shown
@@ -113,8 +108,9 @@ export function AccessBar({
     }
   }
 
-  // Asking needs the gateway: while the connection is down the bar only explains.
-  if (connection.status !== "connected") action = null;
+  // Asking needs the gateway: while the connection is down the bar only explains, except
+  // for the way back after an approval Clawtrate couldn't confirm.
+  if (connection.status !== "connected" && !shelf?.offline) action = null;
   const pending = !info.readOnly && upgrade.status === "pending";
   return (
     <footer className="composer" data-readonly="true">
@@ -143,12 +139,13 @@ export function AccessBar({
               expires.
             </p>
           )}
-          {pending && upgrade.requestId && (
-            <div className="access-id">
-              <span className="mono">Request {upgrade.requestId.slice(0, 8)}</span>
-              <CopyValue value={upgrade.requestId} label="Copy request id" />
-              {upgrade.approveNote && <span>{upgrade.approveNote}</span>}
-            </div>
+          {pending && (
+            <WaitingRow
+              upgrade={upgrade}
+              copy={
+                upgrade.requestId && <CopyValue value={upgrade.requestId} label="Copy request id" />
+              }
+            />
           )}
         </section>
       </div>

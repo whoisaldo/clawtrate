@@ -197,12 +197,18 @@ describe.skipIf(process.platform === "win32")("the ssh client", () => {
       "linux",
       { ok: true },
     ],
-    ["Windows' bundled 9.5", "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2", "win32", { ok: true }],
+    // Windows has no local socket the host can prove private for the forward: no SSH route there.
+    [
+      "Windows' bundled 9.5",
+      "OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2",
+      "win32",
+      { ok: false, kind: "not-supported-here", reason: "platform" },
+    ],
     [
       "Windows 10's bundled 8.1",
       "OpenSSH_for_Windows_8.1p1, LibreSSL 3.0.2",
       "win32",
-      { ok: false, kind: "not-supported-here", reason: "ssh-version" },
+      { ok: false, kind: "not-supported-here", reason: "platform" },
     ],
     [
       "a client too old for known-hosts none",
@@ -214,7 +220,7 @@ describe.skipIf(process.platform === "win32")("the ssh client", () => {
       "another program on Windows",
       "OpenSSH_9.9p2, LibreSSL 3.3.6",
       "win32",
-      { ok: false, kind: "not-supported-here", reason: "ssh-version" },
+      { ok: false, kind: "not-supported-here", reason: "platform" },
     ],
     [
       "something else",
@@ -615,7 +621,7 @@ describe.skipIf(process.platform === "win32")("the ssh client", () => {
 
   it("is not supported here when the program is missing, and nothing else runs", async () => {
     const started: string[][] = [];
-    const transport = new SshTransport(worldWith(null, "win32", "missing"), {
+    const transport = new SshTransport(worldWith(null, "darwin", "missing"), {
       spawn: (_file, args) => {
         started.push([...args]);
         throw new Error("nothing may start");

@@ -21,6 +21,8 @@ export class GatewayError extends Error {
 const fakeStartedAt = Date.now();
 /** This fake gateway start's `server.bootId`, as a real gateway reports a random one per start. */
 export const FAKE_BOOT_ID = "fake-boot-1";
+/** The identity a fake gateway answers `gateway.identity.get` with, unless a test sets its own. */
+export const FAKE_GATEWAY_ID = "fake-gateway-1";
 
 export function helloOk(scopes: string[] = ["operator.read"], deviceToken?: string) {
   return {
@@ -124,6 +126,8 @@ export class FakeGateway {
     "sessions.messages.subscribe": () => ({ ok: true }),
     "sessions.messages.unsubscribe": () => ({ ok: true }),
     "chat.history": () => ({ messages: [], hasMore: false }),
+    // Every gateway says who it is; an access request is confirmed against it (setup §9).
+    "gateway.identity.get": () => ({ deviceId: FAKE_GATEWAY_ID, publicKey: "fake-gateway-key" }),
   };
   connectReply: (params: unknown, url: string) => Reply = () => ({ ok: true, payload: helloOk() });
 

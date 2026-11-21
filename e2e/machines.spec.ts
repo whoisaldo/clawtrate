@@ -272,7 +272,8 @@ test("F-046: admin asked for explicitly sets Otto's commands to media-box; it is
   const page = writer.page;
   const bar = page.getByTestId("admin-bar");
   await bar.getByRole("button", { name: "Request admin access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.", { timeout: 15_000 });
+  // The admin bar's waiting state, in setup.md §9's words for where the request waits.
+  await expect(bar).toContainText("Waiting for approval.", { timeout: 15_000 });
   await approve();
   await expect(page.getByTestId("runs-on-machine")).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId("runs-on-machine").click();

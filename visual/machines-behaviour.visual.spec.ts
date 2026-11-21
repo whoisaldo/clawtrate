@@ -292,7 +292,7 @@ test("F-046 F-047: below admin every value shows, nothing can be changed, and th
   const bar = page.getByTestId("admin-bar");
   await expect(bar).toContainText("Changing where Otto runs needs admin access.");
   await bar.getByRole("button", { name: "Request admin access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.");
+  await expect(bar).toContainText("Waiting for approval.");
   expect((await sent(page)).filter((c) => c.type === "requestAccess")).toEqual([
     { type: "requestAccess", tier: "admin" },
   ]);

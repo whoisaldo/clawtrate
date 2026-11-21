@@ -14,6 +14,23 @@
 //   accounts=none            no account connected yet
 //   chosen=<profile id>      the account chosen in the Account step
 //   create=creating|slow|failed
+//   step=approvals           the Approvals step; perm=ask|full chooses in it (nothing by default)
+//   The host's results for Create (bots.md section 3, controls.md section 10), chosen here,
+//   independent of what is clicked:
+//   create=timeout           agents.create's reply is lost: not confirmed, nothing more is sent
+//   create=partial           step 2 (Never, the restrictive list, fallbacks: []) doesn't read back
+//   create=conflict          the config's hash changed before step 3: it stops, writing nothing
+//   readback=pending|mismatch|fail   step 3's read of the saved mode (mismatch reads Never)
+//   label=guarded|full|read-only|none   the gateway's reported default command policy for the
+//                            new bot (default: guarded for Ask, full for Full)
+//   approvals=deny           the approvals file, read before Create, blocks commands
+//   retry=fail|gone          "Write it again": its read-back fails, or the bot is no longer
+//                            identified, so the retry isn't offered
+//   state=nobots             the gateway's replies for a confirmed unused implicit main: the
+//                            first-bot prompt (bots.md section 3). roster=used (main has tasks),
+//                            legacy (main in the legacy agents.list), missing (no session reply)
+//                            or fail (agents.list failed) each give the normal roster
+//   defperm=guarded|full|read-only|none   Main's reported policy, on the prompt below admin
 //   name=<text>              the new bot's name
 
 (function () {
@@ -105,7 +122,7 @@
   const B = {
     access: ["read", "write", "admin"].includes(p("access")) ? p("access") : "admin",
     req: p("req") || "none", // the request for admin access
-    draft: { name: p("name") ?? "", body: "drop", color: "#ff6f9c", account: p("chosen") || DEFAULT_MODEL.account || null, model: null, effort: "Medium" },
+    draft: { name: p("name") ?? "", body: "drop", color: "#ff6f9c", account: p("chosen") || DEFAULT_MODEL.account || null, model: null, effort: "Medium", perm: ["ask", "full"].includes(p("perm")) ? p("perm") : null },
     create: { step: p("step") || "look", status: p("create") || "idle", opener: null },
     connect: null, // { from, view, option, stage, ... }
     settings: { section: p("section") || "gateway", account: p("account") || null, pane: p("account") || p("section") ? "section" : "nav", edit: false },
@@ -204,7 +221,7 @@
           `<div class="access-row"><span class="access-id">Request <span class="mono">${REQUEST}</span>${copy("request id", REQUEST)}` +
           `<span class="access-wait">checking again in ${B.seconds}s</span></span><span class="spacer"></span>` +
           button("Check now", 'data-b="request-check" data-size="sm"') +
-          button("Cancel request", 'data-b="request-cancel" data-size="sm"', "quiet") +
+          button("Stop waiting", 'data-b="request-cancel" data-size="sm"', "quiet") +
           `</div>`
         : "") +
       `</section>`
@@ -262,7 +279,7 @@
   }
 
   // Re-rendering keeps focus on the same control: it is found again by its data.
-  const KEYS = ["bChoose", "bBody", "bColor", "bSelect", "bOption", "bAccount", "bSection", "t3", "c", "bs", "b"];
+  const KEYS = ["bChoose", "bPerm", "bBody", "bColor", "bSelect", "bOption", "bAccount", "bSection", "t3", "c", "bs", "b"];
   function keep(root, render) {
     const el = document.activeElement;
     let selector = null;
@@ -344,15 +361,44 @@
         (DEFAULT_MODEL.account && B.draft.account === DEFAULT_MODEL.account ? `<p class="b-hint">Chosen because the gateway's default model names it.</p>` : "") +
         (B.createNote ? note(`<p>${esc(B.createNote)}</p>`) : "") +
         chosenPart(name);
-      const busy = ["creating", "slow", "checking"].includes(B.create.status);
       const none = !B.draft.account;
       foot = !isAdmin()
         ? adminBar("Creating a bot changes the gateway's settings, which needs admin access. What you chose stays here while you ask.")
-        : (B.create.status === "failed" ? note(`<p><b>Could not create the bot.</b> Please try again.</p>`, "danger") : "") +
-          button(busy ? "Creating…" : "Create", `data-b="create" data-size="lg"${busy || none ? " disabled" : ""}`, "primary") +
-          (none && !busy ? `<p class="b-hint" style="text-align:center;margin:0">Choose an account, or let the gateway choose.</p>` : "") +
-          (B.create.status === "slow" ? `<p class="b-hint" role="status" style="text-align:center;margin:0">Still creating. What you entered is kept.</p>` : "") +
-          (B.create.status === "checking" ? `<p class="b-hint" role="status" style="text-align:center;margin:0">Checking whether ${esc(name)} was created…</p>` : "");
+        : button("Next", `data-b="to-approvals" data-size="lg"${none ? " disabled" : ""}`, "primary") +
+          (none ? `<p class="b-hint" style="text-align:center;margin:0">Choose an account, or let the gateway choose.</p>` : "");
+    } else if (step === "approvals") {
+      // controls.md section 10: nothing is chosen at first; Create waits for a choice.
+      // Below admin the choices aren't drawn at all, even if access drops while the step is open.
+      const name = B.draft.name.trim() || "New bot";
+      const n = esc(name);
+      head = `<header class="b-head">${back("Back to accounts", "to-account")}<h2 id="create-title" tabindex="-1">Approvals</h2>${close("Close")}</header>`;
+      const row = (value, title, line) =>
+        `<li><button type="button" class="b-choice" role="radio" aria-checked="${B.draft.perm === value}" tabindex="-1" data-b-perm="${value}" aria-labelledby="b-perm-${value}-t" aria-describedby="b-perm-${value}-d">` +
+        `<span class="b-choice-text"><span class="b-choice-title" id="b-perm-${value}-t">${title}</span><span class="b-choice-sub b-wrap" id="b-perm-${value}-d">${line}</span></span>${icon("check", "icon b-tick")}</button></li>`;
+      const blocks = p("approvals") === "deny";
+      body =
+        `<span class="b-preview" style="--avatar-create:56px;margin-bottom:10px" aria-hidden="true">${draftArt()}</span>` +
+        `<p class="b-lead">When ${n} wants to run a command:</p>` +
+        (isAdmin()
+          ? `<div role="radiogroup" aria-label="Approvals"><ul class="b-choices">` +
+            row("ask", "Ask before acting", `Sets ${n}'s command policy to ask for approval when a command misses the machine's allowlist.`) +
+            row("full", "Run without routine approvals", `Sets ${n}'s command policy to run without routine approval. The machine, the task or a rule can still require approval or block a command.`) +
+            `</ul></div>` +
+            `<p class="b-hint">Commands use the machine and permissions set by the gateway. ${n}'s command setting replaces the gateway-wide command mode for this bot. You can change this later in ${n}'s settings.</p>` +
+            (blocks ? `<p class="b-hint" data-tone="warn" data-b-file="deny">The gateway's approvals file blocks commands.</p>` : `<p class="b-hint" data-b-file>The gateway's approvals file can require approval or block commands.</p>`)
+          : "");
+      const busy = ["creating", "slow"].includes(B.create.status);
+      const none = !B.draft.perm;
+      const unconfirmed = B.create.status === "unconfirmed";
+      foot = !isAdmin()
+        ? adminBar("Creating a bot changes the gateway's settings, which needs admin access. What you chose stays here while you ask.")
+        : unconfirmed
+          ? note(`<p><b>Clawtrate couldn't confirm whether ${n} was created.</b> Review the gateway's bot list.</p><div class="b-actions">${button("Review bots", 'data-b="review-bots" data-size="sm"')}</div>`, "warn")
+          : (B.create.status === "failed" ? note(`<p><b>Could not create the bot.</b> Please try again.</p>`, "danger") : "") +
+            (!none && !busy ? `<p class="b-hint" style="text-align:center;margin:0" data-b-inherits>Before Clawtrate sets ${n}'s policy, the new bot inherits the gateway's settings.</p>` : "") +
+            button(busy ? "Creating…" : "Create", `data-b="create" data-size="lg"${busy || none ? " disabled" : ""}`, "primary") +
+            (none && !busy ? `<p class="b-hint" style="text-align:center;margin:0" data-b-perm-hint>Choose how ${n} runs commands.</p>` : "") +
+            (B.create.status === "slow" ? `<p class="b-hint" role="status" style="text-align:center;margin:0">Still creating. What you entered is kept.</p>` : "");
     } else {
       const view = renderConnect();
       head = `<header class="b-head">${back(view.backLabel, "connect-back")}<h2 id="create-title" tabindex="-1">${view.title}</h2>${close("Close")}</header>`;
@@ -385,21 +431,23 @@
     `<button type="button" class="b-select" data-b-select="${what}" aria-haspopup="menu" aria-expanded="false" aria-label="${label}: ${esc(value || "none")}"${isAdmin() ? "" : " disabled"}>` +
     `<small>${label}</small><span>${esc(value || "—")}</span>${icon("chevron")}</button>`;
 
+  // Create is one admin host operation (bots.md section 3). The host itself refuses a
+  // Create without an explicit Ask or Full and an account choice, whatever the page
+  // sends. Every write it makes is recorded, so the checks can see what was sent.
+  const writes = [];
+  function hostCreate(draft) {
+    if (!isAdmin() || !["ask", "full"].includes(draft?.perm) || !draft?.account) return { refused: true };
+    writes.push({ op: "agents.create", name: draft.name.trim() || "New bot" });
+    return { refused: false };
+  }
+
   function create() {
-    if (!isAdmin()) return;
+    if (B.create.status === "creating" || B.create.status === "slow") return;
+    if (hostCreate(B.draft).refused) return;
     const want = p("create");
     B.create.status = "creating";
     renderCreate();
     announce("Creating the bot");
-    // A first write that timed out: look for the bot before anything is sent again.
-    if (want === "timeout") {
-      setTimeout(() => {
-        B.create.status = "checking";
-        renderCreate();
-        setTimeout(finishCreate, 700);
-      }, 500);
-      return;
-    }
     const slow = setTimeout(() => {
       if (B.create.status === "creating") {
         B.create.status = "slow";
@@ -415,28 +463,105 @@
           if (want === "failed") announce("Could not create the bot");
           return;
         }
-        finishCreate();
+        // A lost or ambiguous reply: not confirmed. Nothing more is sent from this attempt,
+        // and a bot of that name found later is not taken to be this one.
+        if (want === "timeout") {
+          B.create.status = "unconfirmed";
+          renderCreate();
+          announce(`Clawtrate couldn't confirm whether ${B.draft.name.trim() || "New bot"} was created`);
+          return;
+        }
+        created();
       },
       want === "slow" ? 600 : 700,
     );
   }
 
-  function finishCreate() {
+  // The new bot's first task: one note that follows the reads (controls.md section 10).
+  const PERM_WORDS = { ask: "Ask before acting", full: "Run without routine approvals", deny: "Never" };
+  const LABEL_WORDS = {
+    guarded: "The gateway reports that the default command policy asks on an allowlist miss.",
+    full: "The gateway reports no routine approval in the default command policy.",
+    "read-only": "The gateway reports that the default command policy disables commands.",
+  };
+  function taskNote(n, s) {
+    const box = (tone, state, html, actions = "") =>
+      `<div class="b-note b-created"${tone ? ` data-tone="${tone}"` : ""} data-b-created="${state}">${icon(tone ? "warning" : state === "reading" ? "clock" : "check")}<div>${html}${actions ? `<div class="b-actions">${actions}</div>` : ""}</div></div>`;
+    if (s.state === "reading") return box("", "reading", `<p>Checking what was written…</p>`);
+    if (s.state === "restrictfail")
+      return box("danger", "restrictfail", `<p><b>Couldn't confirm ${n}'s settings.</b> Clawtrate sends nothing to ${n} until they are confirmed.</p>`, s.identified ? button("Write them again", 'data-b="restrict-again" data-size="sm"') : "");
+    if (s.state === "unconfirmed")
+      return box(
+        "warn",
+        "unconfirmed",
+        `<p><b>Clawtrate couldn't confirm ${n}'s command setting.</b> Review the gateway's settings before sending a task.${s.read ? ` Its saved command setting is ${PERM_WORDS[s.read]}.` : ""}</p>`,
+        button("Review settings", 'data-b="review-settings" data-size="sm"') + (s.identified ? button("Write it again", 'data-b="perm-again" data-size="sm"') : ""),
+      );
+    return box("", "confirmed", `<p data-b-saved>${n}'s saved command setting is ${PERM_WORDS[s.read]}.</p><p data-b-label>${s.label === "none" ? `The gateway didn't report a default command policy for ${n}.` : LABEL_WORDS[s.label]}</p>`);
+  }
+  const plain = (html) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+  // Step 1 confirmed, with the id it returned: the dialog closes on the new bot, whose
+  // composer is held until its command setting reads back.
+  function created() {
     const name = B.draft.name.trim() || "New bot";
     let id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "new-bot";
     while (app.bots.some((b) => b.id === id)) id += "-2";
     CT.botArt[id] = { body: B.draft.body, color: B.draft.color, tilt: 0, look: [0.6, 0] };
     const a = acct(B.draft.account);
     // An account: its model with @account. "Let the gateway choose": the model, no account.
-    // Both with an empty fallback list; create=partial shows that second write refused.
-    binding[id] = { account: a ? a.id : null, mode: a ? "account" : "gateway", model: B.draft.model, effort: B.draft.effort, locked: false, fallbackWriteFailed: p("create") === "partial" };
-    app.bots.push({ id, name, label: "", tasks: [{ id: `${id}-1`, title: "Main", at: 3000, when: "now", preview: "No messages yet.", unread: false, status: "idle", html: "", fresh: true }] });
+    binding[id] = { account: a ? a.id : null, mode: a ? "account" : "gateway", model: B.draft.model, effort: B.draft.effort, locked: false };
+    const perm = B.draft.perm;
+    const task = { id: `${id}-1`, title: "Main", at: 3000, when: "now", preview: "No messages yet.", unread: false, status: "idle", html: "", fresh: true, hold: true };
+    app.bots.push({ id, name, label: "", tasks: [task] });
+    B.created = { id, name, perm, task };
     B.create = { step: "look", status: "idle", opener: null, created: true };
-    B.draft = { name: "", body: "drop", color: "#ff6f9c", account: null, model: null, effort: "Medium" };
+    B.draft = { name: "", body: "drop", color: "#ff6f9c", account: null, model: null, effort: "Medium", perm: null };
     createDialog.close();
     app.selectBot(id);
-    $(".composer-input")?.focus();
     announce(`Created ${name}`);
+    noteOn(task, name, { state: "reading" });
+    restrictive(id, name, perm, task);
+  }
+
+  function noteOn(task, name, s) {
+    task.note = taskNote(esc(name), s);
+    task.hold = s.state !== "confirmed";
+    app.render();
+  }
+
+  // Step 2: Never, the restrictive deny list and fallbacks: [], in one hash-guarded patch.
+  function restrictive(id, name, perm, task) {
+    writes.push({ op: "config.patch", step: 2, id, mode: "deny", deny: ["gateway", "plugins", "automations", "browser", "message", "t3code__*"], fallbacks: [] });
+    setTimeout(() => {
+      if (p("create") === "partial" && !B.created.restrictRetried) {
+        B.created.restrictRetried = true;
+        noteOn(task, name, { state: "restrictfail", identified: p("retry") !== "gone" });
+        announce(`Couldn't confirm ${name}'s settings`);
+        return;
+      }
+      policy(id, name, perm, task);
+    }, 400);
+  }
+
+  // Step 3: the chosen mode and the final deny list, after a fresh read of the target and its hash.
+  function policy(id, name, perm, task, again = false) {
+    const fixture = again ? (p("retry") === "fail" ? "fail" : "ok") : p("readback") || "ok";
+    const conflict = !again && p("create") === "conflict";
+    if (!conflict) writes.push({ op: "config.patch", step: 3, id, mode: perm, deny: ["gateway", "plugins", "t3code__*"], replacePaths: [`agents.entries.${id}.tools.deny`] });
+    setTimeout(() => {
+      if (fixture === "pending" && !conflict) {
+        announce("Checking what was written");
+        return; // the note stays at "Checking what was written…", and the composer held
+      }
+      const s =
+        conflict || fixture !== "ok"
+          ? { state: "unconfirmed", read: fixture === "mismatch" ? "deny" : null, identified: p("retry") !== "gone" }
+          : { state: "confirmed", read: perm, label: p("label") || (perm === "ask" ? "guarded" : "full") };
+      noteOn(task, name, s);
+      if (s.state === "confirmed") $(".composer-input")?.focus();
+      announce(plain(taskNote(esc(name), s)).split(/(?<=\.) /)[0]);
+    }, 500);
   }
 
   // Connecting an account: the same component in New bot and in Settings -----------------------------
@@ -820,6 +945,7 @@
   // Re-render whichever dialog shows the connect component.
   function rerender(focus) {
     CT.botsRender?.();
+    if (!app.bots.length) app.render();
     if (createDialog.open) {
       renderCreate();
       if (focus) focusFirst(createDialog);
@@ -1048,6 +1174,14 @@
       renderCreate();
       return;
     }
+    const perm = t.closest("[data-b-perm]");
+    if (perm) {
+      if (!isAdmin()) return;
+      perm.focus();
+      B.draft.perm = perm.dataset.bPerm;
+      renderCreate();
+      return;
+    }
     const sel = t.closest("[data-b-select]");
     if (sel && inDialog === createDialog) {
       if (menu && menu.opener === sel) return closeSelect(true);
@@ -1105,9 +1239,43 @@
         renderCreate();
         focusFirst(createDialog);
         break;
+      case "to-approvals":
+        if (!B.draft.account) break;
+        B.create.step = "approvals";
+        renderCreate();
+        focusFirst(createDialog);
+        break;
+      case "to-account":
+        B.create.step = "account";
+        renderCreate();
+        focusFirst(createDialog);
+        break;
+      case "first-bot":
+        openCreate(t.closest("button"));
+        break;
       case "create":
         create();
         break;
+      case "review-bots":
+        // Close and refresh the rail: what the gateway lists, nothing assumed.
+        B.create = { step: "look", status: "idle", opener: null };
+        createDialog.close();
+        app.render();
+        break;
+      case "review-settings":
+        app.setPanel(true);
+        $("#tab-settings")?.click();
+        break;
+      case "perm-again":
+      case "restrict-again": {
+        // Only for the bot Create returned, after a fresh read identifies it: one write, never Create.
+        const c = B.created;
+        if (!c || p("retry") === "gone") break;
+        noteOn(c.task, c.name, { state: "reading" });
+        if (action === "restrict-again") restrictive(c.id, c.name, c.perm, c.task);
+        else policy(c.id, c.name, c.perm, c.task, true);
+        break;
+      }
       case "accounts-retry":
         B.accountsState = "ready";
         renderCreate();
@@ -1358,7 +1526,7 @@
   // The shell's own question, "may this connection write?", follows the tier.
   if (B.access === "read") {
     app.model.access = "read";
-    app.selectBot(app.model.selectedBot);
+    if (app.bots.length) app.selectBot(app.model.selectedBot);
   }
   if (p("open") === "create") {
     if (B.create.step === "connect") startConnect("create", p("connect"), p("stage"));
@@ -1371,5 +1539,55 @@
     openSettings($(".gateway-pill"));
     if (B.connect?.stage === "connected") connectTo("connected");
   }
-  window.bots = { B, accounts: () => accounts, binding, openCreate, openSettings, connectTo, grantAdmin };
+  // The first-bot prompt (bots.md section 3, F-005) rests on the gateway's replies, not on an
+  // empty rail: exactly one user-visible agent, an unnamed, non-degraded main with defaultId main;
+  // a config with neither agents.entries nor the legacy agents.list; and a complete, unfiltered
+  // session list for main with no tasks. Anything else, or a missing reply, is the normal roster.
+  const roster = p("state") === "nobots" ? p("roster") || "unused" : null;
+  const REPLIES = roster && {
+    agents: roster === "fail" ? null : { agents: [{ id: "main", name: null, degraded: false }], defaultId: "main" },
+    config: { entries: false, legacyList: roster === "legacy" },
+    sessions: roster === "missing" ? null : { complete: true, filtered: false, count: roster === "used" ? 2 : 0 },
+  };
+  const firstBot = (r) =>
+    Boolean(
+      r?.agents && r.agents.defaultId === "main" && r.agents.agents.length === 1 && r.agents.agents[0].id === "main" && !r.agents.agents[0].name && !r.agents.agents[0].degraded &&
+        r.config && !r.config.entries && !r.config.legacyList &&
+        r.sessions && r.sessions.complete && !r.sessions.filtered && r.sessions.count === 0,
+    );
+  const FIRST = { eligible: firstBot(REPLIES) };
+  // Not confirmed, with the agent listed: main is shown as a bot, named Main, as today.
+  if (REPLIES && !FIRST.eligible && REPLIES.agents) {
+    CT.botArt.main = CT.botArt.main || { body: "drop", color: "#5b8dff", tilt: 0, look: [0.6, 0] };
+    const tasks = roster === "used" ? [{ id: "main-1", title: "Main", at: 2000, when: "yesterday", preview: "Earlier work.", unread: false, status: "idle", html: "" }] : [];
+    app.bots.push({ id: "main", name: "Main", label: "", tasks });
+    app.selectBot("main");
+  }
+  const MAIN_POLICY = {
+    guarded: "The gateway reports that Main's default command policy asks on an allowlist miss.",
+    full: "The gateway reports no routine approval in Main's default command policy.",
+    "read-only": "The gateway reports that Main's default command policy disables commands.",
+  };
+  CT.emptyGateway = () => {
+    if (!FIRST.eligible) return null;
+    const said = MAIN_POLICY[p("defperm") || "full"] || "";
+    return (
+      `<div class="empty b-first" data-b-first><div>` +
+      `<span class="b-preview" aria-hidden="true">${draftArt()}</span>` +
+      `<h1>Make your first bot</h1><p>Give it a name and a picture, choose the account it runs on and how it runs commands.</p>` +
+      (isAdmin()
+        ? `<div class="empty-actions">${button("New bot", 'data-b="first-bot"', "primary")}</div>`
+        : (said ? `<p class="b-hint" data-b-default-policy>${said}</p>` : "") +
+          `<div class="b-first-bar">${adminBar("Creating a bot changes the gateway's settings, which needs admin access.")}</div>`) +
+      `</div></div>`
+    );
+  };
+  if (!app.bots.length) app.render();
+
+  // For the checks: what the host wrote, its Create guard, a change of access while a dialog is open, and the first-bot reading.
+  const setAccess = (tier) => {
+    B.access = tier;
+    if (createDialog.open) renderCreate();
+  };
+  window.bots = { B, accounts: () => accounts, binding, openCreate, openSettings, connectTo, grantAdmin, writes: () => writes.map((w) => ({ ...w })), hostCreate, setAccess, first: () => ({ eligible: FIRST.eligible }) };
 })();

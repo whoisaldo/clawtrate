@@ -1,5 +1,6 @@
-import type { ClawtrateState, Transcript } from "@clawtrate/core";
+import { isApprovalDisconnect, type ClawtrateState, type Transcript } from "@clawtrate/core";
 import { useEffect, useState } from "react";
+import type { ApprovalAction } from "./ApprovalWait.tsx";
 import { gatewayLabel } from "./format.ts";
 
 /**
@@ -60,7 +61,11 @@ export type Strip = {
   short?: string;
   /** The explanation after the middle dot; it shortens first. */
   more: string | null;
-  action: "retry" | "reload" | "reconnect" | null;
+  /**
+   * `route-retry` restores an SSH route's forward at once; `review` opens that
+   * computer's screens again (docs/design/setup.md §8).
+   */
+  action: "retry" | "reload" | "reconnect" | "route-retry" | "review" | "approval" | null;
   /** Show the host's retry countdown in the text. */
   countdown: boolean;
 };
@@ -77,6 +82,18 @@ export function stripFor(
 ): Strip | null {
   const { connection, discovery } = state;
   const transcript = taskKey ? state.transcripts[taskKey] : undefined;
+  // Clawtrate disconnected after an approval it couldn't confirm (§9): said before a route's own
+  // state, with the same actions as the access bar, never a plain Reconnect to another gateway.
+  if (connection.status === "error" && isApprovalDisconnect(connection.error?.code))
+    return {
+      tone: "danger",
+      text: "Disconnected",
+      more: connection.error?.message ?? null,
+      action: "approval",
+      countdown: false,
+    };
+  const route = routeStrip(state);
+  if (route) return route;
   switch (connection.status) {
     case "reconnecting":
     case "connecting":
@@ -139,6 +156,93 @@ export function stripFor(
 }
 
 /**
+ * The SSH route's own words (docs/design/setup.md §8), while its forward is
+ * not simply up: being restored, back, out of reach, or stopped for a reason
+ * the person decides about. Null when the route is up, or there is none.
+ */
+export function routeStrip(state: ClawtrateState): Strip | null {
+  const route = state.setup?.route;
+  if (!route) return null;
+  const account = route.account;
+  switch (route.phase) {
+    case "restoring":
+      return {
+        tone: "warn",
+        text: `Restoring the connection to ${account}`,
+        short: "Restoring the connection",
+        more: "showing saved messages",
+        // Retry is offered only while the host can act on it: the forward waiting for its next try.
+        action: route.retry ? "route-retry" : null,
+        countdown: false,
+      };
+    case "restored":
+      return {
+        tone: "ok",
+        text: `Connected to OpenClaw on ${account} again`,
+        short: "Connected again",
+        more: null,
+        action: null,
+        countdown: false,
+      };
+    case "unreachable":
+      return {
+        tone: "danger",
+        text: `Can't reach ${account}`,
+        short: "Can't reach the computer",
+        more: route.cause ?? "showing saved messages",
+        action: "route-retry",
+        countdown: false,
+      };
+    case "key-changed":
+      return {
+        tone: "danger",
+        text: `SSH presented a key that differs from the saved key for ${account}`,
+        short: "The SSH key differs",
+        more: null,
+        action: "review",
+        countdown: false,
+      };
+    case "service-changed":
+      return {
+        tone: "danger",
+        text: "The service found at the gateway port changed",
+        short: "The service changed",
+        more: null,
+        action: "review",
+        countdown: false,
+      };
+    case "different-gateway":
+      return {
+        tone: "danger",
+        text: "A different OpenClaw gateway answered",
+        short: "A different gateway",
+        more: null,
+        action: "review",
+        countdown: false,
+      };
+    case "stopped":
+      return {
+        tone: "danger",
+        text: `OpenClaw stopped on ${account}`,
+        more: null,
+        action: "review",
+        countdown: false,
+      };
+    case "failed":
+      return {
+        tone: "danger",
+        text: `Couldn't restore the connection to OpenClaw on ${account}`,
+        short: "Couldn't restore the connection",
+        more: null,
+        action: "review",
+        countdown: false,
+      };
+    default:
+      return null;
+  }
+}
+
+/**
  * One compact pill in the protected band under the title pill, centred on the
  * conversation. It overlays the transcript, so nothing moves when it comes or
  * goes, and it mounts only when needed, so its countdown starts then.
@@ -148,11 +252,17 @@ export function StatusStrip({
   retryAt,
   onRetry,
   onReload,
+  onRoute,
+  approval = null,
 }: {
   strip: Strip;
   retryAt: number | null;
   onRetry: () => void;
   onReload: () => void;
+  /** The SSH route's "Retry now" and "Review", both the host's. */
+  onRoute?: () => void;
+  /** After an approval Clawtrate couldn't confirm: the access bar's first action (§9). */
+  approval?: ApprovalAction | null;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -187,13 +297,29 @@ export function StatusStrip({
         )}
         {strip.more && <span>· {strip.more}</span>}
       </span>
-      {strip.action && (
-        <button type="button" onClick={strip.action === "reload" ? onReload : onRetry}>
-          {strip.action === "retry"
+      {strip.action === "approval" && approval && (
+        <button type="button" onClick={approval.run}>
+          {approval.label}
+        </button>
+      )}
+      {strip.action && strip.action !== "approval" && (
+        <button
+          type="button"
+          onClick={
+            strip.action === "reload"
+              ? onReload
+              : strip.action === "route-retry" || strip.action === "review"
+                ? (onRoute ?? onRetry)
+                : onRetry
+          }
+        >
+          {strip.action === "retry" || strip.action === "route-retry"
             ? "Retry now"
             : strip.action === "reconnect"
               ? "Reconnect"
-              : "Try again"}
+              : strip.action === "review"
+                ? "Review"
+                : "Try again"}
         </button>
       )}
     </div>

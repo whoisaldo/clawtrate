@@ -178,7 +178,7 @@ export function BotSettings({
 
   const cli = gatewayCli(info, connection);
   const foot = granted ? (
-    <GrantedBar />
+    <GrantedBar nowShown={connection.upgrade.nowShown === true} />
   ) : !admin ? (
     <div className="b-panel-foot">
       <AdminBar

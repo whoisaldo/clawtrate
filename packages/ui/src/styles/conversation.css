@@ -782,13 +782,20 @@
 }
 
 .access-id {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 6px;
   padding-bottom: 4px;
   font-size: var(--text-sm);
   color: var(--text-muted);
+}
+
+/* Check now and Stop waiting (setup.md §9), at the row's end, or on their own line when narrow. */
+.access-id-actions {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .access-bar .button:not([data-variant]) {

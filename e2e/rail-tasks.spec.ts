@@ -243,7 +243,7 @@ test.beforeAll(async ({ browser }) => {
   await botRow(page, "Pip").first().click();
   const bar = page.getByRole("region", { name: "Access" });
   await bar.getByRole("button", { name: "Request access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.");
+  await expect(bar).toContainText("Waiting for approval.");
   await expect
     .poll(() => devGateway(INSTANCE, "approve"), { timeout: 30_000, intervals: [1000] })
     .toMatch(/^Approved /m);

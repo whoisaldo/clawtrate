@@ -275,7 +275,22 @@ describe("the person's SSH configuration", () => {
       }
       expect(resolveWith("Include ~/out/conf\n")).toMatchObject({
         ok: false,
-        category: "unreadable",
+        category: "invalid-value",
+        setting: "Include",
+      });
+      // A pattern's match that is a link out of the home folder: the Include is refused.
+      mkdirSync(join(world.home, ".ssh", "linked.d"), { recursive: true });
+      writeFileSync(join(world.home, ".ssh", "linked.d", "10.conf"), "Host devbox\n  Port 2201\n");
+      symlinkSync(join(outside, "conf"), join(world.home, ".ssh", "linked.d", "20.conf"));
+      expect(resolveWith("Include ~/.ssh/linked.d/*.conf\n")).toMatchObject({
+        ok: false,
+        category: "invalid-value",
+        setting: "Include",
+      });
+      rmSync(join(world.home, ".ssh", "linked.d", "20.conf"));
+      expect(resolveWith("Include ~/.ssh/linked.d/*.conf\n")).toMatchObject({
+        ok: true,
+        port: 2201,
       });
       // Spelled outside but walked inside is inside: a link into the home folder is fine.
       symlinkSync(join(world.home, ".ssh"), join(outside, "back"), "dir");
@@ -369,11 +384,46 @@ describe("the person's SSH configuration", () => {
     },
   );
 
-  it("does not follow an Include out of the home folder", () => {
+  it("does not follow an Include out of the home folder, and names the Include", () => {
     expect(resolveWith("Include /etc/ssh/ssh_config\n")).toMatchObject({
       ok: false,
-      category: "unreadable",
+      category: "invalid-value",
+      setting: "Include",
+      title: "Clawtrate can't use Include in the SSH settings for devbox.",
     });
+  });
+
+  it("reads a relative Include from the SSH configuration folder, as OpenSSH does, even from a file that was itself included", () => {
+    // ~/.ssh/config includes conf.d/main; conf.d/main includes `extra` relatively, which OpenSSH
+    // reads as ~/.ssh/extra, never ~/.ssh/conf.d/extra.
+    mkdirSync(join(world.home, ".ssh", "conf.d"), { recursive: true });
+    writeFileSync(join(world.home, ".ssh", "conf.d", "main"), "Include extra\n");
+    writeFileSync(join(world.home, ".ssh", "conf.d", "extra"), "Host devbox\n  Port 2200\n");
+    writeFileSync(join(world.home, ".ssh", "extra"), "Host devbox\n  HostKeyAlias other\n");
+    try {
+      expect(resolveWith("Include conf.d/main\n")).toMatchObject({
+        ok: false,
+        category: "host-key",
+        setting: "HostKeyAlias",
+      });
+    } finally {
+      rmSync(join(world.home, ".ssh", "conf.d"), { recursive: true, force: true });
+      rmSync(join(world.home, ".ssh", "extra"), { force: true });
+    }
+  });
+
+  it("refuses an Include with tokens, variables or more than one path by the name Include", () => {
+    for (const line of [
+      "Include %d/.ssh/extra",
+      "Include ${HOME}/x",
+      "Include a b",
+      'Include "a" b',
+    ])
+      expect(resolveWith(`${line}\n`), line).toMatchObject({
+        ok: false,
+        setting: "Include",
+        title: "Clawtrate can't use Include in the SSH settings for devbox.",
+      });
   });
 
   it.each([
@@ -381,13 +431,13 @@ describe("the person's SSH configuration", () => {
       "ProxyJump",
       "ProxyJump bastion.example",
       "jump-host",
-      "devbox is reached through another computer.",
+      "The SSH settings for devbox include ProxyJump.",
     ],
     [
       "ProxyCommand",
       "ProxyCommand nc %h %p",
       "jump-host",
-      "devbox is reached through another computer.",
+      "The SSH settings for devbox include ProxyCommand.",
     ],
     ["LocalCommand", "LocalCommand touch x", "command-or-forward", null],
     ["PermitLocalCommand", "PermitLocalCommand yes", "command-or-forward", null],
@@ -406,7 +456,7 @@ describe("the person's SSH configuration", () => {
       "StrictHostKeyChecking",
       "StrictHostKeyChecking no",
       "host-key",
-      "devbox's SSH settings change how its key is checked.",
+      "Clawtrate can't use StrictHostKeyChecking in the SSH settings for devbox.",
     ],
     ["UserKnownHostsFile", "UserKnownHostsFile /dev/null", "host-key", null],
     ["GlobalKnownHostsFile", "GlobalKnownHostsFile none", "host-key", null],
@@ -415,10 +465,20 @@ describe("the person's SSH configuration", () => {
     ["HostKeyAlias", "HostKeyAlias other", "host-key", null],
     ["VerifyHostKeyDNS", "VerifyHostKeyDNS yes", "host-key", null],
     ["RevokedHostKeys", "RevokedHostKeys ~/.ssh/revoked", "host-key", null],
+    // These change key checking, the address chosen or how this account signs in: never dropped.
+    ["HostKeyAlgorithms", "HostKeyAlgorithms ssh-rsa", "host-key", null],
+    ["CheckHostIP", "CheckHostIP yes", "host-key", null],
+    ["AddressFamily", "AddressFamily inet6", "unsupported", null],
+    ["PreferredAuthentications", "PreferredAuthentications password", "unsupported", null],
+    ["PasswordAuthentication", "PasswordAuthentication yes", "unsupported", null],
+    ["GSSAPIAuthentication", "GSSAPIAuthentication yes", "unsupported", null],
   ])("refuses %s in a matching block, by name", (setting, line, category, title) => {
     const refusal = resolveWith(`Host devbox\n  HostName devbox.example\n  ${line}\n`);
     expect(refusal).toMatchObject({ ok: false, kind: "refused", category, setting });
-    if (title) expect(refusal).toMatchObject({ title });
+    // The note names the actual setting, whatever its group.
+    expect(refusal).toMatchObject({
+      title: title ?? `Clawtrate can't use ${setting} in the SSH settings for devbox.`,
+    });
     // The same setting in a block that doesn't match is not the route's concern.
     if (setting !== "Include") {
       expect(resolveWith(`Host other\n  ${line}\nHost devbox\n  Port 2222\n`)).toMatchObject({
@@ -444,9 +504,8 @@ describe("the person's SSH configuration", () => {
         ok: false,
         category: "command-or-forward",
         setting: "Match",
-        title: "devbox's SSH settings run a command or open other forwards.",
-        sentence:
-          "Clawtrate only opens one forward, with no commands of yours. Add a plain alias for devbox to your SSH configuration and use that.",
+        title: "Clawtrate can't use Match in the SSH settings for devbox.",
+        sentence: "Use a plain SSH alias or Advanced.",
       },
     );
   });

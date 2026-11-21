@@ -159,7 +159,7 @@ test("F-201: below admin the check-ins are read from the gateway's jobs and noth
   const bar = page.getByTestId("admin-bar");
   await expect(bar).toContainText("Changing check-ins needs admin access.");
   await bar.getByRole("button", { name: "Request admin access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.", { timeout: 15_000 });
+  await expect(bar).toContainText("Waiting for approval.", { timeout: 15_000 });
   await approve();
   await expect(page.getByTestId("admin-bar")).toContainText("Admin access granted.", {
     timeout: 30_000,

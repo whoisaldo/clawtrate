@@ -2,12 +2,18 @@
 // one core client, the device's data directory, and development gateway detection.
 
 import {
+  approvalForPlace,
   AttachmentStore,
   ClawtrateClient,
   defaultApprovalInstructions,
   type ApprovalInstructions,
+  type ApprovalPlace,
+  type KeyValueStore,
+  type ReadBack,
+  type ReadBackRequest,
   type BridgePolicy,
   type HostInfo,
+  type WebSocketLike,
 } from "@clawtrate/core";
 import { createNodeHost } from "@clawtrate/core/node";
 import { randomUUID } from "node:crypto";
@@ -70,20 +76,41 @@ export function readDevConnection(
   return "refusal" in proof ? null : proof;
 }
 
-/** The approve command to show. Only the development gateway gets the dev tooling's command. */
+/**
+ * The approve command to show. Only the development gateway gets the dev
+ * tooling's command. A gateway setup reached on this computer or over SSH gets
+ * the command for its profile and the computer to run it on
+ * (docs/design/setup.md §9), after a relaunch too, from the profile kept with
+ * the connection; an address route keeps the general one, even where a setup
+ * found a gateway at the same address.
+ */
 export function approvalInstructionsFor(
   devGateway: DevGatewayConnection | null,
-): (gatewayUrl: string, requestId: string) => ApprovalInstructions {
-  return (gatewayUrl, requestId) =>
-    devGateway && gatewayUrl === devGateway.url
-      ? {
-          command:
-            devGateway.instance === null
-              ? "pnpm dev-gateway approve"
-              : `pnpm dev-gateway approve --instance ${devGateway.instance}`,
-          note: null,
-        }
+  placeFor: (gatewayUrl: string) => ApprovalPlace | null = () => null,
+): (
+  gatewayUrl: string,
+  requestId: string,
+  here?: { profile: "default" | "clawtrate" } | null,
+  address?: boolean,
+) => ApprovalInstructions {
+  return (gatewayUrl, requestId, here, address) => {
+    if (devGateway && gatewayUrl === devGateway.url)
+      return {
+        command:
+          devGateway.instance === null
+            ? "pnpm dev-gateway approve"
+            : `pnpm dev-gateway approve --instance ${devGateway.instance}`,
+        note: null,
+      };
+    // An address the person typed is never given the words of a place a setup found there.
+    const place = address
+      ? null
+      : (placeFor(gatewayUrl) ??
+        (here ? ({ route: "this-computer", profile: here.profile } as const) : null));
+    return place
+      ? approvalForPlace(place, requestId)
       : defaultApprovalInstructions(gatewayUrl, requestId);
+  };
 }
 
 export type HostRuntime = {
@@ -128,6 +155,28 @@ export async function startHostRuntime(options: {
    * alone, never asks for more access, and tells the interface so.
    */
   readOnly?: boolean;
+  /**
+   * Reopen the gateway the data folder remembers (the default). A development
+   * build, an automated run and the web host's setup look pass false: they
+   * never resume a saved gateway, whatever its address.
+   */
+  resume?: boolean;
+  /** Where a gateway's owner approves a request, for setup's routes (`approvalInstructionsFor`). */
+  approvalPlace?: (gatewayUrl: string) => ApprovalPlace | null;
+  /** The read-back after an approval (setup §9), for setup's routes; null for any other address. */
+  readBack?: (gatewayUrl: string, request: ReadBackRequest) => Promise<ReadBack | null>;
+  /**
+   * A route's word on an address before every socket: true or false for an
+   * SSH forward's local address (only the current one, while it is up), null
+   * for any other address, which the rules above decide.
+   */
+  routeAllows?: (gatewayUrl: string) => boolean | null;
+  /** The host's own socket for a route's address (an SSH forward's channel), or null for any other. */
+  routeSocket?: (gatewayUrl: string) => WebSocketLike | null;
+  /** Reconnect after Disconnect on a routed connection: only the host can open its route again. */
+  reopenRoute?: (route: string) => Promise<void>;
+  /** Wraps the host's store: the desktop keeps route tokens in its route store. */
+  wrapStorage?: (store: KeyValueStore) => KeyValueStore;
 }): Promise<HostRuntime> {
   if (options.devOnly && !options.devGateway) {
     throw new Error(
@@ -151,18 +200,27 @@ export async function startHostRuntime(options: {
         version: APP_VERSION,
         platform: process.platform,
       },
-      approvalInstructions: approvalInstructionsFor(options.devGateway),
+      approvalInstructions: approvalInstructionsFor(
+        options.devGateway,
+        options.approvalPlace ?? (() => null),
+      ),
+      ...(options.wrapStorage ? { wrapStorage: options.wrapStorage } : {}),
+      ...(options.routeSocket ? { routeSocket: options.routeSocket } : {}),
+      ...(options.readBack ? { readBack: options.readBack } : {}),
       log: (level, message) => {
         if (level !== "debug") console[level === "info" ? "log" : level](`[core] ${message}`);
       },
     }),
     {
       allowGatewayUrl: (url) => {
+        const routed = options.routeAllows?.(url) ?? null;
+        if (routed !== null) return routed && !options.devOnly;
         if (dev && url === dev.url) return stillProven();
         // Other gateways the user chose deliberately, unless this host is development-only.
         return !options.devOnly;
       },
       ...(options.readOnly ? { readOnly: true } : {}),
+      ...(options.reopenRoute ? { reopenRoute: options.reopenRoute } : {}),
     },
   );
   const devOnly = options.devOnly ? dev : null;
@@ -170,7 +228,7 @@ export async function startHostRuntime(options: {
     const saved = await client.savedSettings();
     if (saved && saved.url !== devOnly.url) throw new SavedGatewayRefusedError(saved.url);
   }
-  await client.start();
+  await client.start({ resume: options.resume !== false });
   if (options.autoConnectDev && devGateway && client.state.connection.status === "idle") {
     await client.connect(devGateway);
   }

@@ -58,7 +58,16 @@ async function walk(name, start, stepsList, end) {
   let ok = true;
   let where = start;
   for (const [action, expect] of stepsList) {
-    await action(p);
+    // A step that can't be taken (its control is missing) fails this walk, not the run.
+    const took = await Promise.race([
+      Promise.resolve().then(() => action(p)).then(() => true, () => false),
+      new Promise((resolve) => setTimeout(() => resolve(false), 8000)),
+    ]);
+    if (!took) {
+      ok = false;
+      where = `${await screenOf(p)} (a step couldn't be taken)`;
+      break;
+    }
     if (expect && !(await at(p, expect))) {
       ok = false;
       where = `${await screenOf(p)} (expected ${expect})`;
@@ -178,7 +187,6 @@ await walk(
   ],
 );
 await walk("advanced: the address-and-token form as built", "first", [[link("Advanced"), "connect.html"]]);
-
 // Part 2: every state, its words ---------------------------------------------------------------
 const WORDS = {
   first: ["Where does OpenClaw run?", "This computer", "Clawtrate looks for OpenClaw here.", "Another computer", "A computer you reach with SSH, such as a server or a desktop at home.", "Have a setup code?", "Advanced", "New to OpenClaw? Choose where it should run, and Clawtrate offers to set it up there."],
@@ -206,7 +214,10 @@ const WORDS = {
   "install-confirm": ["Set up OpenClaw on this computer", "OpenClaw 2026.10.6, the version this Clawtrate is tested with, with its own copy of Node.js 24.22.1", "Clawtrate puts OpenClaw's program and gateway data in its own folders and adds a user service. npm can also write its cache and OpenClaw can write service logs.", "Clawtrate checks the OpenClaw and Node.js downloads against fingerprints built into this version. Setup also installs code from npm that Clawtrate hasn't pinned or verified. That code can run with your account's permissions.", "as a LaunchAgent that starts when you log in", "Nothing is asked for: no account and no model key.", "Removing this gateway in Settings can also stop it; removing OpenClaw isn't offered in this version.", "Set up OpenClaw…"],
   installing: ["Setting up OpenClaw", "Download and check OpenClaw 2026.10.6", "Install Node.js and OpenClaw", "Node.js 24.22.1, checked", "Set up the gateway", "Start and check", "The times are samples."],
   "install-failed": ["Install Node.js and OpenClaw failed.", "The installer didn't use the checked Node.js.", "Show details", "Error", "Node.js check", "Exit status"],
-  approve: ["Waiting for the gateway's owner.", "On devbox, approve this request for the default profile:", "openclaw devices approve e5eb4aa8-175f-40f1-bc7a-8f15cfc40942", "Request e5eb4aa8", "Check now", "Cancel request"],
+  approve: ["Waiting for approval on devbox.", "On devbox, run this for the default profile:", "openclaw devices approve e5eb4aa8-175f-40f1-bc7a-8f15cfc40942", "Request e5eb4aa8", "Check now", "Stop waiting"],
+  "approve-here": ["Waiting for approval on this computer.", "In Terminal on this computer, run this for Clawtrate's profile:", "openclaw --profile clawtrate devices approve e5eb4aa8-175f-40f1-bc7a-8f15cfc40942", "Stop waiting"],
+  "approve-address": ["Waiting for approval.", "Run this on the gateway's computer, with --profile <name> if the gateway doesn't use the default profile:", "openclaw devices approve e5eb4aa8-175f-40f1-bc7a-8f15cfc40942", "Stop waiting"],
+  "approve-pairing": ["Approve this device", "Waiting for approval on devbox.", "On devbox, run this for the default profile:", "openclaw devices approve e5eb4aa8-175f-40f1-bc7a-8f15cfc40942", "Read bots, tasks and conversations", "Stop waiting"],
   restoring: ["Restoring the connection to devbox", "· showing saved messages", "Retry now"],
   "route-changed": ["This address now leads to a different gateway", "Review"],
   phone: ["Connect a phone", "Clawtrate doesn't make codes for phones yet.", "A phone needs an encrypted address it can reach. Set one up with OpenClaw's network-exposure instructions.", "OpenClaw's network-exposure instructions", "A setup code stays valid until it is used or expires, even after you close where it was shown."],
@@ -252,6 +263,7 @@ const HOST_WORDS = {
   start: ["Start OpenClaw on this computer?", "Starts the LaunchAgent ai.openclaw.gateway. It keeps running after Clawtrate closes."],
   install: ["Set up OpenClaw on this computer?", "Clawtrate checks the OpenClaw and Node.js downloads against fingerprints built into this version. Setup also installs code from npm that Clawtrate hasn't pinned or verified. That code can run with your account's permissions."],
   removeRoute: ["Remove devbox from Clawtrate?", "leaves OpenClaw on devbox running", "Also stop OpenClaw on devbox (Clawtrate started it)"],
+  approveRequest: ["Approve this device's request on the default gateway on you@devbox.example?", "Profile: default · you@devbox.example, port 22 · this device 5AE2-3AFF", "It adds:", "Send messages and start tasks", "Answer approvals", "Answer questions", "Clawtrate approves request e5eb4aa8 on devbox, then checks what the gateway granted.", "Approve"],
 };
 check("every host dialog is checked", hostOps.every((op) => op in HOST_WORDS) && Object.keys(HOST_WORDS).every((op) => hostOps.includes(op)), hostOps.join(", "));
 for (const [op, words] of Object.entries(HOST_WORDS)) {
@@ -284,7 +296,7 @@ await p.close();
 // Part 4: what each state may and may not offer ---------------------------------------------------
 const offers = async (query, label, fn) => {
   p = await open(query);
-  check(label, await p.evaluate(fn));
+  check(label, await p.evaluate(fn).catch(() => false));
   await p.close();
 };
 await offers("screen=found", "found: Connect asks the host; nothing pairs from the page", () => document.querySelector('[data-host="pair"]')?.textContent === "Connect" && !document.querySelector('a[href*="connecting"]'));
@@ -296,7 +308,6 @@ await offers("screen=hostkey-changed", "changed key: no way to trust it without 
 await offers("screen=unreachable", "SSH refusal: Try again submits the field, and Advanced is a direct link", () => document.querySelector('#ssh-form button[type="submit"]')?.textContent === "Try again" && [...document.querySelectorAll("a")].some((a) => a.getAttribute("href") === "connect.html"));
 await offers("screen=refused", "sign-in refused: a direct Advanced link", () => [...document.querySelectorAll("a")].some((a) => a.getAttribute("href") === "connect.html"));
 await offers("screen=there-config", "a refused setting: a direct Advanced link", () => [...document.querySelectorAll("a")].some((a) => a.getAttribute("href") === "connect.html"));
-await offers("screen=approve", "approve: no automatic approval, the profile named", () => !document.querySelector("[data-host]") && document.body.textContent.includes("for the default profile"));
 await offers("screen=untested", "untested version: Advanced, and no Connect or code", () => [...document.querySelectorAll("a")].some((a) => a.getAttribute("href") === "connect.html") && !document.querySelector('[data-host="pair"]') && !document.querySelector('a[href*="connecting"]'));
 await offers("screen=canttell", "can't tell: Advanced, and no Start", () => [...document.querySelectorAll("a")].some((a) => a.getAttribute("href") === "connect.html") && !document.querySelector('[data-host="start"]'));
 await offers("screen=stopped", "proven stopped: Start asks the host", () => document.querySelector('[data-host="start"]') !== null);
@@ -403,7 +414,7 @@ await p.close();
 
 // Part 7: widths, themes, motion -----------------------------------------------------------------
 for (const [label, width] of [["1100", 1100], ["800", 800], ["phone", 390]]) {
-  for (const screen of ["first", "found", "hostkey", "hostkey-changed", "install-confirm", "installing", "approve", "settings", "phone", "code-pairing"]) {
+  for (const screen of ["first", "found", "hostkey", "hostkey-changed", "install-confirm", "installing", "approve", "approve-here", "approve-address", "approve-pairing", "settings", "phone", "code-pairing"]) {
     p = await open(`screen=${screen}&width=${label === "phone" ? "phone" : "full"}`, { width, height: 844 });
     check(`${screen} at ${label}: no sideways scroll`, await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
     await p.close();
@@ -420,6 +431,148 @@ p = await open("screen=looking-here");
 await p.waitForTimeout(2800);
 check("a wait reached from the address holds, so it can be looked at", (await screenOf(p)) === "looking-here");
 await p.close();
+
+// Part 9: approving a request (setup.md section 9) ------------------------------------------------
+// On 2026.10.6 there is no "Approve from here": the command, then a read-back that decides what is
+// kept. CT.approvalLog counts what a host would do: approvals, saved tokens, removals.
+const logOf = (p) => p.evaluate(() => ({ ...(window.CT.approvalLog || { missing: true }) }));
+const approvalText = (p) => text(p, "[data-approval]");
+const evalOr = (p, fn) => p.evaluate(fn).catch(() => false);
+// A control that isn't there fails the check that needs it, not the run.
+const tap = (p, selector) => p.locator(selector).first().click({ timeout: 2000 }).catch(() => {});
+const ownerApproves = async (p) => {
+  await tap(p, '[data-act="owner"]');
+  await p.waitForTimeout(800);
+};
+for (const screen of ["approve", "approve-here", "approve-address", "approve-pairing"]) {
+  p = await open(`screen=${screen}`);
+  check(`${screen}: on 2026.10.6 no Approve from here, the command with Copy, Stop waiting not Cancel`, await p.evaluate(() => !document.querySelector('[data-host="approveRequest"]') && !!document.querySelector('[data-approval] .command [data-copy]') && document.querySelector("[data-approval]").textContent.includes("Stop waiting") && !document.querySelector("[data-approval]").textContent.includes("Cancel request")));
+  await p.close();
+}
+p = await open("screen=approve");
+await ownerApproves(p);
+let lg = await logOf(p);
+check("manual approval, exact: Granted only after the read-back, a token saved, nothing approved or removed by Clawtrate", (await approvalText(p)).includes("Access granted · you can send, stop and answer") && lg.tokenSaved && lg.approveCalls === 0 && lg.removeCalls === 0 && lg.listReads === 1);
+await p.close();
+p = await open("screen=approve");
+await tap(p, '[data-act="owner"]');
+await p.waitForTimeout(150);
+check("manual approval: while it reads back, it says so and offers nothing to click", (await approvalText(p)).includes("Checking what this request granted on devbox…") && (await p.evaluate(() => !document.querySelector("[data-approval] button, [data-approval] a"))));
+await p.close();
+const MANUAL = {
+  other: ["Clawtrate disconnected. It couldn't confirm what this request granted. Review this device's access on the gateway before reconnecting.", false],
+  unread: ["Clawtrate disconnected. It couldn't confirm what this request granted.", false],
+  already: ["The gateway now shows the requested access.", true],
+  gone: ["Clawtrate couldn't find this request in the gateway's pending list.", false],
+  rejected: ["The request was denied. Nothing changed.", false],
+  mismatch: ["The gateway's pending request for this device isn't the one Clawtrate asked for.", false],
+  identity: ["Clawtrate couldn't confirm this gateway's identity or version.", false],
+  different: ["This route now leads to a different gateway.", false],
+  listfail: ["Couldn't read the gateway's requests on devbox.", false],
+};
+for (const [result, [words, saved]] of Object.entries(MANUAL)) {
+  p = await open(`screen=approve&result=${result}`);
+  await ownerApproves(p);
+  lg = await logOf(p);
+  const t = await approvalText(p);
+  check(`manual approval, ${result}: its words; a token ${saved ? "saved" : "not saved"}; nothing removed`, t.includes(words) && lg.tokenSaved === saved && lg.removeCalls === 0 && !/removed this device/.test(t), t.slice(0, 160));
+  await p.close();
+}
+p = await open("screen=approve&result=mismatch");
+await ownerApproves(p);
+check("manual approval, mismatch: no command to copy for the request that doesn't match", (await approvalText(p)).includes("The gateway's pending request for this device isn't the one Clawtrate asked for.") && (await p.evaluate(() => !document.querySelector("[data-approval] [data-copy]") && !document.querySelector("[data-approval] code"))));
+await p.close();
+p = await open("screen=approve&result=listfail");
+await ownerApproves(p);
+check("manual approval, list unread: no exit code is claimed when none was recorded", (await approvalText(p)).includes("Couldn't read the gateway's requests on devbox.") && !(await approvalText(p)).includes("exited with code"));
+await p.close();
+p = await open("screen=approve&result=listfail&code=2");
+await ownerApproves(p);
+check("manual approval, list unread: the recorded exit code is named", (await approvalText(p)).includes("OpenClaw exited with code 2."));
+await p.close();
+p = await open("screen=approve&result=gone");
+await ownerApproves(p);
+await tap(p, '[data-act="request"]');
+await p.waitForTimeout(100);
+check("a request that can't be found: Request again goes back to waiting, approving nothing", (await approvalText(p)).includes("Waiting for approval on devbox.") && (await logOf(p)).approveCalls === 0);
+await p.close();
+p = await open("screen=approve");
+await tap(p, '[data-act="stop"]');
+await p.waitForTimeout(80);
+check("Stop waiting stops this device's retries and doesn't claim the request was cancelled", (await approvalText(p)).includes("The request may still be pending on the gateway.") && !/cancell?ed/i.test(await approvalText(p)));
+await p.close();
+p = await open("screen=approve-pairing&result=exact");
+await ownerApproves(p);
+check("first pairing, manual: paired read-only only after the read-back", (await approvalText(p)).includes("Paired, read-only.") && (await logOf(p)).tokenSaved);
+await p.close();
+
+// The future "Approve from here" (exact=1): only where an exact path is proven.
+const FLOWS = [
+  ["pairing", "screen=approve-pairing&exact=1", "Pair this device with the default gateway on you@devbox.example?", ["Read bots, tasks and conversations."], "Paired, read-only."],
+  ["write", "screen=approve&exact=1", "Approve this device's request on the default gateway on you@devbox.example?", ["Send messages and start tasks", "Answer approvals", "Answer questions"], "Access granted · you can send, stop and answer"],
+  ["admin", "screen=approve&exact=1&flow=admin", "Approve this device's request on the default gateway on you@devbox.example?", ["Send messages and start tasks", "Answer approvals", "Answer questions", "Change the gateway's settings, bots and accounts. This is admin access."], "Admin access granted."],
+];
+for (const [flow, query, message, scopes, done] of FLOWS) {
+  p = await open(query);
+  check(`exact path, ${flow}: labelled a future example`, (await approvalText(p)).includes("Future example: this needs an exact approval path that OpenClaw 2026.10.6 doesn't offer."));
+  await tap(p, '[data-host="approveRequest"]');
+  await p.waitForSelector('[data-host-dialog="approveRequest"]', { timeout: 2000 }).catch(() => {});
+  const listed = await p.evaluate(() => [...document.querySelectorAll("[data-host-dialog] [data-added] li")].map((li) => li.textContent));
+  check(`exact path, ${flow}: the dialog names the gateway and lists exactly the scopes it adds`, (await text(p, "[data-host-dialog]")).includes(message) && JSON.stringify(listed) === JSON.stringify(scopes), listed.join(" | "));
+  check(`exact path, ${flow}: the dialog names the operation and request, not an internal command`, (await text(p, "[data-host-dialog]")).includes("Clawtrate approves request e5eb4aa8 on devbox") && !(await text(p, "[data-host-dialog]")).includes("openclaw "));
+  await tap(p, "[data-host-confirm]");
+  await p.waitForTimeout(1300);
+  lg = await logOf(p);
+  check(`exact path, ${flow}: one approval, then the confirmed outcome and a token saved`, (await approvalText(p)).includes(done) && lg.approveCalls === 1 && lg.tokenSaved && lg.removeCalls === 0);
+  await p.close();
+}
+p = await open("screen=approve&exact=1");
+await tap(p, '[data-host="approveRequest"]');
+await tap(p, "[data-host-cancel]");
+await p.waitForTimeout(80);
+check("exact path: Cancel issues nothing and leaves the request waiting", (await logOf(p)).approveCalls === 0 && (await approvalText(p)).includes("Waiting for approval on devbox."));
+await p.close();
+const HOSTRESULT = {
+  changed: ["This changed since you looked. Look again.", 0, false],
+  refused: ["Clawtrate did not approve this request.", 1, false],
+  "refused-granted": ["Clawtrate did not approve this request. The gateway now shows the requested access.", 1, true],
+  uncertain: ["Couldn't confirm approval on devbox.", 1, false],
+  readback: ["Clawtrate disconnected. It couldn't confirm what this request granted.", 1, false],
+};
+for (const [result, [words, calls, saved]] of Object.entries(HOSTRESULT)) {
+  p = await open(`screen=approve&exact=1&hostresult=${result}`);
+  await tap(p, '[data-host="approveRequest"]');
+  await tap(p, "[data-host-confirm]");
+  await p.waitForTimeout(1300);
+  lg = await logOf(p);
+  const t = await approvalText(p);
+  check(`exact path, ${result}: its words; ${calls} approval call${calls === 1 ? "" : "s"}; token ${saved ? "saved" : "not saved"}; nothing removed`, t.includes(words) && lg.approveCalls === calls && lg.tokenSaved === saved && lg.removeCalls === 0 && !/removed this device/.test(t), `${JSON.stringify(lg)} ${t.slice(0, 120)}`);
+  await p.close();
+}
+p = await open("screen=approve&exact=1&hostresult=uncertain");
+await tap(p, '[data-host="approveRequest"]');
+await tap(p, "[data-host-confirm]");
+await p.waitForTimeout(1300);
+await tap(p, '[data-act="recheck"]');
+await p.waitForTimeout(800);
+lg = await logOf(p);
+check("exact path, uncertain: Check again reads again and never reissues the approval", lg.approveCalls === 1 && lg.listReads >= 2 && !lg.tokenSaved && (await approvalText(p)).includes("Clawtrate couldn't find this request in the gateway's pending list."));
+await p.close();
+for (const theme of ["dark", "light"]) {
+  for (const [label, width, query] of [["1440", 1440, "width=full"], ["390", 390, "width=phone"]]) {
+    for (const q of ["screen=approve", "screen=approve-pairing", "screen=approve&exact=1"]) {
+      p = await open(`${q}&${query}`, { width, height: 844, theme });
+      const fits = await evalOr(p, () => { const r = document.querySelector("[data-approval]").getBoundingClientRect(); return r.width > 0 && r.right <= innerWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1; });
+      let dialogFits = true;
+      if (q.includes("exact=1")) {
+        await tap(p, '[data-host="approveRequest"]');
+        dialogFits = await evalOr(p, () => { const r = document.querySelector("[data-host-dialog]").getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1; });
+      }
+      check(`${q} at ${label}, ${theme}: fits with no sideways scroll${q.includes("exact=1") ? ", and so does its dialog" : ""}`, fits && dialogFits && (theme !== "dark" || (await p.evaluate(() => document.documentElement.dataset.theme === "dark"))));
+      await p.close();
+    }
+  }
+}
 
 // Part 8: the gallery and the bar reach this page -----------------------------------------------
 p = await b.newPage();

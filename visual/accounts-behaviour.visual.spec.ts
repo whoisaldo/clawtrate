@@ -277,7 +277,7 @@ test("F-472: below admin the rows show but cannot be chosen, and the access bar 
     (window as unknown as { clawtrateFixture: { hold(): void } }).clawtrateFixture.hold(),
   );
   await bar.getByRole("button", { name: "Request admin access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.");
+  await expect(bar).toContainText("Waiting for approval.");
   await expect(bar.getByTestId("command")).toContainText("openclaw devices approve");
   expect(
     (await sent(page)).some((each) => each.type === "requestAccess" && each.tier === "admin"),

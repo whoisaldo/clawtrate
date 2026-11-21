@@ -1,4 +1,4 @@
-import { mapSessionRow, type ClawtrateState, type HostInfo } from "@clawtrate/core";
+import { APPROVAL_WORDS, mapSessionRow, type ClawtrateState, type HostInfo } from "@clawtrate/core";
 import { canWrite } from "./access.ts";
 import { OpenTaskContext } from "./cards/index.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,11 +14,14 @@ import {
 import { Rail } from "./Rail.tsx";
 import { useSelection } from "./selection.ts";
 import { unreadCount } from "./unread.ts";
+import { approvalActions } from "./ApprovalWait.tsx";
+import { useOpenSettings } from "./settings-open.tsx";
 import { refreshFailed, StatusStrip, stripFor, useSyncPhase } from "./StatusStrip.tsx";
 import { ShortcutList } from "./Shortcuts.tsx";
 import { isWorkTab, WorkPanel, type WorkTab } from "./WorkPanel.tsx";
 import { setUsageOpener } from "./usage/navigation.ts";
 import { NewBot } from "./bots/NewBot.tsx";
+import { RECOVERED_FOR_MS } from "./bots/parts.tsx";
 import "./bots/bots.css";
 import { RoutinesView, ROUTINES_HOME, type RoutinesNav } from "./routines/RoutinesView.tsx";
 import { revealStep, WorkLinksContext, type FileRequest, type WorkLinks } from "./work/links.tsx";
@@ -65,16 +68,28 @@ export function Shell({
   onCaughtUp?: (caughtUp: boolean) => void;
 }) {
   const send = useCommand();
+  const openSettings = useOpenSettings();
   const interactive = canWrite(state.connection, info);
 
   // When access arrives, the strip says so for four seconds; the conversation announces it.
   const connectedNow = state.connection.status === "connected";
   const [tier, setTier] = useState(interactive);
   const [granted, setGranted] = useState(false);
+  // After a wait this device lost, the strip first says once that the gateway now shows the
+  // requested access (setup §9), then Granted.
+  const [recovered, setRecovered] = useState(false);
   if (connectedNow && interactive !== tier) {
     setTier(interactive);
-    if (interactive && state.connection.upgrade.status === "approved") setGranted(true);
+    if (interactive && state.connection.upgrade.status === "approved") {
+      setGranted(true);
+      setRecovered(state.connection.upgrade.nowShown === true);
+    }
   }
+  useEffect(() => {
+    if (!recovered) return;
+    const timer = setTimeout(() => setRecovered(false), RECOVERED_FOR_MS);
+    return () => clearTimeout(timer);
+  }, [recovered]);
   useEffect(() => {
     if (!granted) return;
     // Focus that was in the access bar moves to the composer's field.
@@ -458,8 +473,8 @@ export function Shell({
     granted && connectionStrip?.tone !== "danger"
       ? {
           tone: "ok" as const,
-          text: "Access granted",
-          more: "you can send, stop and answer",
+          text: recovered ? APPROVAL_WORDS.nowShown : "Access granted",
+          more: recovered ? null : "you can send, stop and answer",
           action: null,
           countdown: false,
         }
@@ -482,6 +497,7 @@ export function Shell({
       inert={inert}
     >
       <Rail
+        routeName={state.setup?.route?.account ?? null}
         bots={state.bots}
         tasksByBot={state.tasksByBot}
         discovery={state.discovery}
@@ -545,6 +561,15 @@ export function Shell({
                       retryAt={state.connection.retryAt}
                       onRetry={() => void send({ type: "retry" })}
                       onReload={reload}
+                      onRoute={() => void send({ type: "setupRetryRoute" })}
+                      approval={
+                        approvalActions(
+                          state.connection,
+                          send,
+                          info.setup !== undefined,
+                          openSettings,
+                        )[0] ?? null
+                      }
                     />
                   )
                 }

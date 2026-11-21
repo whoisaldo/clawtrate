@@ -141,12 +141,28 @@ const test = base.extend<{ desktopApp: TestApp }>({
             ...env,
             CLAWTRATE_DEV_INSTANCE: "update-ui-test",
           },
-          stdio: "ignore",
+          stdio: ["ignore", "pipe", "pipe"],
         },
       );
+      // The app's own output, its last 16 KiB, read as it comes so a full pipe never holds it.
+      let output = "";
+      const keep = (chunk: Buffer) => (output = (output + chunk.toString("utf8")).slice(-16_384));
+      app.stdout!.on("data", keep);
+      app.stderr!.on("data", keep);
       cleanup.defer(() => stopElectron(app));
       await once(app, "spawn");
-      const port = await debuggingPort(profile, app);
+      const port = await debuggingPort(profile, app).catch((error: Error) => {
+        // What the app printed and what its data folder holds say where its start stopped.
+        let files: string;
+        try {
+          files = readdirSync(profile).join(", ");
+        } catch (cause) {
+          files = String(cause);
+        }
+        throw new Error(`${error.message}\nData folder: ${files}\nApp output:\n${output}`, {
+          cause: error,
+        });
+      });
       const browser = await playwright.chromium.connectOverCDP("http://127.0.0.1:" + port);
       cleanup.defer(() => browser.close());
       const context = browser.contexts()[0]!;
@@ -543,6 +559,8 @@ if (process.platform !== "win32")
     const gateway = await sidebarGateway();
     const mode = statSync(profile).mode & 0o777;
     try {
+      // The first screen asks where OpenClaw runs; the address-and-token form is under Advanced.
+      await page.getByRole("button", { name: "Advanced" }).click();
       await page.getByPlaceholder("Gateway address").fill(gateway.url);
       await page.getByRole("button", { name: "Connect a gateway", exact: true }).click();
       await expect(page.locator(".rail")).toBeVisible();

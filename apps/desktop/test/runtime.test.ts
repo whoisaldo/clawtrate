@@ -366,11 +366,14 @@ describe("development eligibility needs proof, not two agreeing files (A1)", () 
       command: "pnpm dev-gateway approve --instance alpha",
       note: null,
     });
-    expect(approvalInstructionsFor(named)(DEV_GATEWAY_URL, "req-1").command).toBe(
-      "openclaw devices approve req-1",
+    expect(approvalInstructionsFor(named)(DEV_GATEWAY_URL, REQ).command).toBe(
+      `openclaw devices approve ${REQ}`,
     );
   });
 });
+
+/** A request id in the gateway's UUID shape. */
+const REQ = "e5eb4aa8-175f-40f1-bc7a-8f15cfc40942";
 
 describe("pairing instructions (A3)", () => {
   it("shows only the dev tooling's command for the development gateway", () => {
@@ -382,11 +385,27 @@ describe("pairing instructions (A3)", () => {
 
   it("shows the owner's command, with where to run it, for any other gateway", () => {
     for (const instructions of [
-      approvalInstructionsFor(devGateway)("wss://gateway.example.com", "req-1"),
-      approvalInstructionsFor(null)(DEV_GATEWAY_URL, "req-1"),
+      approvalInstructionsFor(devGateway)("wss://gateway.example.com", REQ),
+      approvalInstructionsFor(null)(DEV_GATEWAY_URL, REQ),
     ]) {
-      expect(instructions.command).toBe("openclaw devices approve req-1");
-      expect(instructions.note).toMatch(/gateway's owner .* machine where the gateway runs/);
+      expect(instructions.command).toBe(`openclaw devices approve ${REQ}`);
+      expect(instructions.title).toBe("Waiting for approval.");
+      expect(instructions.note).toBe(
+        "Run this on the gateway's computer, with `--profile <name>` if the gateway doesn't use the default profile:",
+      );
     }
+    // An address the person typed: never a place's words, even where a setup found one there.
+    const here = approvalInstructionsFor(null, () => ({
+      route: "this-computer",
+      profile: "clawtrate",
+    }));
+    expect(here(DEV_GATEWAY_URL, REQ).title).toBe("Waiting for approval on this computer.");
+    expect(here(DEV_GATEWAY_URL, REQ, null, true)).toEqual(
+      approvalInstructionsFor(null)(DEV_GATEWAY_URL, REQ),
+    );
+    // Only an id of the gateway's UUID shape goes in a command (setup §9).
+    expect(approvalInstructionsFor(null)(DEV_GATEWAY_URL, "req-1").command).toBe(
+      "openclaw devices list",
+    );
   });
 });

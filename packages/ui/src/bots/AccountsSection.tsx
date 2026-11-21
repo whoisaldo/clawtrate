@@ -96,7 +96,7 @@ export function useAccountsSection({
     </button>
   );
   const adminFoot = granted ? (
-    <GrantedBar />
+    <GrantedBar nowShown={connection.upgrade.nowShown === true} />
   ) : admin ? null : (
     <AdminBar
       connection={connection}

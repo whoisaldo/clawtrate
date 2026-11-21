@@ -252,6 +252,10 @@ export function scan(dirs: string[], root: string): Kept[] {
       else if (/\.tsx?$/.test(entry) && !entry.endsWith(".d.ts")) files.push(path);
     }
   };
-  for (const dir of dirs) walk(dir);
+  // A file named on its own is scanned as it is.
+  for (const dir of dirs) {
+    if (statSync(dir).isFile()) files.push(dir);
+    else walk(dir);
+  }
   return files.sort().flatMap((path) => scanFile(path, root));
 }

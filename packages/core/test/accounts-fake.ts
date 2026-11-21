@@ -460,7 +460,7 @@ export async function accountsClient(
   const fake = options.gateway ?? new AccountsGateway();
   const scopes = options.scopes ?? ADMIN_SCOPES;
   const storage = memoryStorage({
-    connection: JSON.stringify({ url: URL_A, token: null }),
+    connection: JSON.stringify({ url: URL_A, token: null, address: true }),
     [tokenKey(URL_A)]: JSON.stringify({
       token: "device-token",
       grantedScopes: scopes,

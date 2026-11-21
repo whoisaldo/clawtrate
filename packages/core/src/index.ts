@@ -4,6 +4,7 @@ export * from "./host.ts";
 export * from "./mapping.ts";
 export * from "./runs.ts";
 export * from "./approvals.ts";
+export * from "./approval.ts";
 export * from "./approval-refusals.ts";
 export * from "./cards.ts";
 export * from "./actions.ts";
@@ -49,6 +50,7 @@ export * from "./owners.ts";
 export * from "./remote-bridge.ts";
 export { utf8Length } from "./encoding.ts";
 export * from "./scopes.ts";
+export * from "./setup.ts";
 export * from "./bridge.ts";
 export * from "./connect-errors.ts";
 export {
@@ -73,6 +75,16 @@ export {
   REQUESTED_SCOPES,
   SendTooLargeError,
   SESSION_PAGE_SIZE,
+  SETUP_ENDPOINT_CHANGED,
+  SETUP_PAIRING_GONE,
+  ROUTE_IDENTITY_UNREAD,
+  ROUTE_IDENTITY_CHANGED,
+  APPROVAL_UNCONFIRMED,
+  APPROVAL_IDENTITY_CHANGED,
+  APPROVAL_IDENTITY_UNREAD,
+  APPROVAL_CHECK_MS,
+  PAIRING_STOPPED,
+  ROUTE_KEY,
   validateGatewayUrl,
   type ClientOptions,
   type ConnectOptions,

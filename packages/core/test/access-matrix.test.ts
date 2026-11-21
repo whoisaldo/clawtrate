@@ -5,8 +5,8 @@
 
 import { describe, expect, it } from "vitest";
 import { INTERACTIVE_SCOPES, READ_SCOPES } from "../src/scopes.ts";
-import { agentEvent, KEY, openTask, questionRecord } from "./client-harness.ts";
-import { deferred, FakeGateway, helloOk, sleep, until } from "./fake-gateway.ts";
+import { agentEvent, KEY, openTask, questionRecord, URL_A } from "./client-harness.ts";
+import { deferred, FakeGateway, helloOk, sleep, tokenKey, until } from "./fake-gateway.ts";
 
 type ConnectParams = { scopes: string[]; auth?: { deviceToken?: string } };
 
@@ -163,52 +163,45 @@ describe("a capped grant, then an action needing what it left out", () => {
   it.each([
     ["answering a question", "question.resolve"],
     ["resolving an approval", "exec.approval.resolve"],
-  ])("%s asks for access again and completes on the second grant", async (_name, method) => {
-    const gateway = gatewayWithWork();
-    let requests = 0;
-    const waits = [deferred<unknown>(), deferred<unknown>()];
-    gateway.handlers["device.scopes.requestUpgrade"] = () => ({
-      requestId: `up-${(requests += 1)}`,
-    });
-    gateway.handlers["device.scopes.waitUpgrade"] = () => waits[requests - 1]!.promise;
-    const { client, transcript } = await openTask({ gateway, held: READ_SCOPES });
-    gateway.emit("agent", agentEvent("run-1", 1, "lifecycle", { phase: "start" }));
-    await client.requestAccess();
-    await until(() => requests === 1);
-    waits[0]!.resolve({
-      status: "approved",
-      requestId: "up-1",
-      deviceToken: "rotated",
-      scopes: ["operator.read", "operator.write"],
-    });
-    await until(() => client.state.connection.canWrite);
-    expect(client.state.connection).toMatchObject({ canAnswer: false, canApprove: false });
-    // Without the scopes the lists were not read; the events still bring the cards.
-    gateway.emit("question.requested", questionRecord("ask_1", "run-1"));
-    gateway.emit("exec.approval.requested", execItem("ap-1"));
-    await until(() => transcript().questions.length === 1 && transcript().approvals.length === 1);
-    const action =
-      method === "question.resolve"
-        ? client.answerQuestion(KEY, "ask_1", { color: ["Blue"] })
-        : client.resolveApproval(KEY, "ap-1", "deny");
-    await until(() => requests === 2);
-    expect(gateway.calls(method)).toEqual([]);
-    expect(client.pendingAccessWaiters).toBe(1);
-    expect(client.state.connection.scopes).toContain("operator.read");
-    waits[1]!.resolve({
-      status: "approved",
-      requestId: "up-2",
-      deviceToken: "rotated-2",
-      scopes: [...INTERACTIVE_SCOPES],
-    });
-    await action;
-    expect(gateway.calls(method)).toHaveLength(1);
-    expect(client.pendingAccessWaiters).toBe(0);
-    expect(client.state.connection).toMatchObject({
-      canWrite: true,
-      canAnswer: true,
-      canApprove: true,
-    });
-    client.stop();
-  });
+  ])(
+    "%s waits, and a grant short of what was asked is unconfirmed: disconnected, nothing saved (setup §9)",
+    async (_name, method) => {
+      const gateway = gatewayWithWork();
+      let requests = 0;
+      const waits = [deferred<unknown>(), deferred<unknown>()];
+      gateway.handlers["device.scopes.requestUpgrade"] = () => ({
+        requestId: `up-${(requests += 1)}`,
+      });
+      gateway.handlers["device.scopes.waitUpgrade"] = () => waits[requests - 1]!.promise;
+      const { client, transcript, storage } = await openTask({ gateway, held: READ_SCOPES });
+      const saved = storage.data.get(tokenKey(URL_A));
+      gateway.emit("agent", agentEvent("run-1", 1, "lifecycle", { phase: "start" }));
+      gateway.emit("question.requested", questionRecord("ask_1", "run-1"));
+      gateway.emit("exec.approval.requested", execItem("ap-1"));
+      await until(() => transcript().questions.length === 1 && transcript().approvals.length === 1);
+      const action = (
+        method === "question.resolve"
+          ? client.answerQuestion(KEY, "ask_1", { color: ["Blue"] })
+          : client.resolveApproval(KEY, "ap-1", "deny")
+      ).then(
+        () => "done",
+        () => "refused",
+      );
+      await until(() => requests === 1);
+      // The owner's role policy capped the grant at read and write.
+      waits[0]!.resolve({
+        status: "approved",
+        requestId: "up-1",
+        deviceToken: "rotated",
+        scopes: ["operator.read", "operator.write"],
+      });
+      await until(() => client.state.connection.status === "error");
+      expect(client.state.connection.upgrade.status).toBe("unconfirmed");
+      expect(client.state.connection.canWrite).toBe(false);
+      expect(storage.data.get(tokenKey(URL_A))).toBe(saved);
+      expect(await action).toBe("refused");
+      expect(gateway.calls(method)).toEqual([]);
+      client.stop();
+    },
+  );
 });

@@ -65,8 +65,8 @@ describe("requested scopes (B1)", () => {
     const { client, storage } = await connected(gateway);
     expect(JSON.parse(storage.data.get(tokenKey(URL_A))!)).toEqual({
       token: "issued-token",
-      grantedScopes: ["operator.read", "operator.write"],
-      // Granted at pairing is not the same as meant to hold: the client still holds read only.
+      // A grant wider than the request is stored as the request: the client holds read only.
+      grantedScopes: ["operator.read"],
       heldScopes: ["operator.read"],
     });
     gateway.dropAll();
@@ -159,15 +159,39 @@ describe("pairing instructions (A3)", () => {
     client.stop();
   });
 
-  it("falls back to the gateway owner's command with a note", async () => {
+  it("falls back to the gateway owner's command with a note, and lists pending devices for an id of another shape", async () => {
     const gateway = pairingGateway();
     const client = new ClawtrateClient(testHost(gateway), FAST);
     await client.connect({ url: URL_B, token: "t" });
     await until(() => client.state.connection.status === "pairing");
-    expect(client.state.connection.pairing?.approveCommand).toBe(
-      "openclaw devices approve req-123",
-    );
-    expect(client.state.connection.pairing?.approveNote).toMatch(/gateway's owner/);
+    // Only a request id of the gateway's UUID shape is put in a command (setup §9).
+    expect(client.state.connection.pairing).toMatchObject({
+      approveCommand: "openclaw devices list",
+      approveTitle: "Waiting for approval.",
+    });
+    expect(client.state.connection.pairing?.approveNote).toMatch(/gateway's computer/);
+    client.stop();
+  });
+
+  it("names the request id in the address route's command when it has the gateway's shape", async () => {
+    const id = "e5eb4aa8-175f-40f1-bc7a-8f15cfc40942";
+    const gateway = new FakeGateway();
+    gateway.connectReply = () => ({
+      ok: false,
+      error: {
+        code: "NOT_PAIRED",
+        message: "pairing required",
+        details: { code: "PAIRING_REQUIRED", requestId: id, deviceId: "device-1" },
+      },
+    });
+    const client = new ClawtrateClient(testHost(gateway), FAST);
+    await client.connect({ url: URL_B, token: "t" });
+    await until(() => client.state.connection.status === "pairing");
+    expect(client.state.connection.pairing).toMatchObject({
+      approveCommand: `openclaw devices approve ${id}`,
+      approveNote:
+        "Run this on the gateway's computer, with `--profile <name>` if the gateway doesn't use the default profile:",
+    });
     client.stop();
   });
 });

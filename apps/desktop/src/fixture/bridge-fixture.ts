@@ -7,6 +7,8 @@ import { fixtureRoutines, routineCommands, type RoutineParams } from "./routines
 import {
   applyApprovalResolved,
   applyQuestionResolved,
+  approvalForPlace,
+  defaultApprovalInstructions,
   beginDecision,
   beginReadback,
   decisionRefusal,
@@ -61,6 +63,7 @@ import { machineCommands, NO_MACHINE_PARAMS, type MachineParams } from "./machin
 import { FAILED_EVENT, LIVE_SCENES, liveCommand, liveScene, type LiveScene } from "./live.ts";
 import { isRailScene, RAIL_SCENES, railCommands, railScene } from "./rail.ts";
 import { ACTION_SCENES, actionScene, isActionScene } from "./actions.ts";
+import { isRouteState, isSetupState, setupCommand, setupInfo, SETUP_STATES } from "./setup.ts";
 import { checkInCommands, fixtureCheckIns, type CheckInParams } from "./check-ins.ts";
 import { memoryCommands } from "./memory.ts";
 import { fixtureUsage, NO_USAGE_PARAMS, usageCommand, type UsageParams } from "./usage.ts";
@@ -84,6 +87,7 @@ export const SCENES = [
   "connect-error",
   "connecting",
   "pairing",
+  "pairing-ssh",
   "reconnecting",
   "reconnecting-unloaded",
   "offline",
@@ -157,7 +161,22 @@ function idle(): ClawtrateState {
   return { ...initialState, connection: { ...initialState.connection, deviceId: DEVICE_ID } };
 }
 
-function pairing(): ClawtrateState {
+function pairing(over: "address" | "ssh" = "address"): ClawtrateState {
+  const id = "5d2a90c4-1b7e-4f0a-9c3d-2e8f6a1b0c55";
+  // The words the host gives for where the request waits (setup.md §9).
+  const words =
+    over === "ssh"
+      ? approvalForPlace(
+          {
+            route: "ssh",
+            name: "devbox",
+            account: "you@devbox.example",
+            port: 22,
+            profile: "default",
+          },
+          id,
+        )
+      : defaultApprovalInstructions(GATEWAY_URL, id);
   return {
     ...initialState,
     connection: {
@@ -170,8 +189,9 @@ function pairing(): ClawtrateState {
         requestId: "5d2a90c4-1b7e-4f0a-9c3d-2e8f6a1b0c55",
         deviceId: DEVICE_ID,
         message: "pairing required",
-        approveCommand: "openclaw devices approve 5d2a90c4-1b7e-4f0a-9c3d-2e8f6a1b0c55",
-        approveNote: "The gateway's owner runs this on the gateway's machine.",
+        approveCommand: words.command,
+        approveNote: words.note,
+        approveTitle: words.title ?? null,
         requestedScopes: ["operator.read"],
       },
     },
@@ -278,6 +298,8 @@ function scene(name: SceneName, now: number): { initial: ClawtrateState; steps: 
       };
     case "pairing":
       return { initial: pairing(), steps: [] };
+    case "pairing-ssh":
+      return { initial: pairing("ssh"), steps: [] };
     case "reconnecting":
       return { initial: reconnecting(base), steps: [] };
     case "reconnecting-unloaded": {
@@ -475,10 +497,12 @@ function answerStrings(
 
 export function createFixtureBridge(
   name: SceneName,
+  /** `setup`: the desktop's first screen and a state of setup (`setup.ts`), over the connect scene. */
   options: {
     desktopUpdates?: ClawtrateBridge["desktopUpdates"];
     files?: FileParams;
     accounts?: AccountParams;
+    setup?: string | null;
     routines?: RoutineParams;
     usage?: UsageParams;
     machines?: MachineParams;
@@ -506,7 +530,12 @@ export function createFixtureBridge(
   release(): void;
 } {
   const now = Date.now();
-  const { initial, steps } = scene(name, now);
+  const setupName = isSetupState(options.setup ?? null) ? options.setup! : null;
+  const { initial: sceneInitial, steps } = scene(
+    setupName && !isRouteState(setupName) ? "connect" : name,
+    now,
+  );
+  const initial = setupName ? { ...sceneInitial, setup: SETUP_STATES[setupName]! } : sceneInitial;
   // The Work pane's Files scenes add the disk task's file runs, and answer the file commands.
   const fileParams = options.files ?? { state: null, checkout: false, failFirstOpen: false };
   const fileAnswer = fileAnswers(now, fileParams);
@@ -633,6 +662,17 @@ export function createFixtureBridge(
     sent.push(command);
     if (live) return live;
     if (FILE_COMMANDS.has(command.type)) return fileAnswer(command);
+    if (
+      setupCommand(
+        command,
+        () => state,
+        set,
+        () => loaded(Date.now()),
+        (ms, run) => deferred(run, ms),
+        setupName === "found-protocol" ? "protocol" : "connected",
+      )
+    )
+      return;
     switch (command.type) {
       case "connect":
       case "connectDevGateway":
@@ -885,7 +925,11 @@ export function createFixtureBridge(
 
   return {
     desktopUpdates: options.desktopUpdates ?? noDesktopUpdates,
-    info: name === "access-pinned" ? { ...FIXTURE_INFO, readOnly: true } : FIXTURE_INFO,
+    info: setupName
+      ? setupInfo(FIXTURE_INFO, setupName)
+      : name === "access-pinned"
+        ? { ...FIXTURE_INFO, readOnly: true }
+        : FIXTURE_INFO,
     getState: () => state,
     subscribe(listener) {
       listeners.add(listener);

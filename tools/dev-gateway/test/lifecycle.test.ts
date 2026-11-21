@@ -15,6 +15,7 @@ import {
   newRunId,
   processIdentity,
   processState,
+  psIdentity,
   readMarker,
   type Identify,
 } from "../src/state-guard.ts";
@@ -40,20 +41,20 @@ afterEach(() => {
   process.env.PATH = realPath;
 });
 
-/** Put a `ps` that misbehaves first on PATH, for this test process only. */
-function brokenPs(script: string): void {
+/** A process lookup whose `ps` misbehaves as `script` says. */
+function brokenPs(script: string): Identify {
   const dir = tempDir("clawtrate-ps-");
   writeFileSync(join(dir, "ps"), `#!/bin/sh\n${script}\n`);
   chmodSync(join(dir, "ps"), 0o755);
-  process.env.PATH = `${dir}:${realPath}`;
+  return psIdentity([join(dir, "ps")]);
 }
 
-/** No `ps` at all. */
-function noPs(): void {
-  process.env.PATH = tempDir("clawtrate-empty-path-");
+/** A process lookup with no `ps` at all. */
+function noPs(): Identify {
+  return psIdentity([join(tempDir("clawtrate-empty-path-"), "ps")]);
 }
 
-const FAILURES: [string, () => void][] = [
+const FAILURES: [string, () => Identify][] = [
   ["ps exits with an error", () => brokenPs("exit 2")],
   ["ps prints something unreadable", () => brokenPs("echo '???'")],
   // Exit status 0 with words that are not a process row must not pass for an identity.
@@ -112,8 +113,8 @@ describe("a process whose identity cannot be read is unknown, never exited (B2)"
 
   it("reads the state macOS ps shows for a process that is exiting", () => {
     const live = liveProcess();
-    brokenPs("echo '?E   Mon Nov 16 21:00:00 2026    '");
-    expect(processIdentity(live.pid)).toEqual({
+    const exiting = brokenPs("echo '?E   Mon Nov 16 21:00:00 2026    '");
+    expect(exiting(live.pid)).toEqual({
       state: "alive",
       identity: "Mon Nov 16 21:00:00 2026",
     });
@@ -143,8 +144,7 @@ describe("a process whose identity cannot be read is unknown, never exited (B2)"
 
   it("is unknown when ps does not answer in time, while the process lives", () => {
     const live = liveProcess();
-    brokenPs("exec sleep 30");
-    const found = processIdentity(live.pid);
+    const found = brokenPs("exec sleep 30")(live.pid);
     expect(found.state).toBe("unknown");
     expect(found.state === "unknown" && found.reason).toMatch(/could not run ps/);
   }, 15_000);
@@ -153,11 +153,11 @@ describe("a process whose identity cannot be read is unknown, never exited (B2)"
     it(`is unknown when ${what}, while the process lives`, () => {
       const live = liveProcess();
       const gone = deadProcess();
-      breakIt();
-      expect(processIdentity(live.pid).state).toBe("unknown");
-      expect(processState(live.pid, live.identity, processIdentity)).toBe("unknown");
+      const identify = breakIt();
+      expect(identify(live.pid).state).toBe("unknown");
+      expect(processState(live.pid, live.identity, identify)).toBe("unknown");
       // Absence is still positive: the kernel says so without ps.
-      expect(processIdentity(gone.pid)).toEqual({ state: "exited", how: "absent" });
+      expect(identify(gone.pid)).toEqual({ state: "exited", how: "absent" });
     });
 
     it(`refuses every deletion, signal and start when ${what}`, async () => {
@@ -166,18 +166,23 @@ describe("a process whose identity cannot be read is unknown, never exited (B2)"
       const gateway = liveProcess();
       const { stateDir } = seedInstance(home, "alpha", { runRoot, gateway });
       const before = snapshot(stateDir);
-      breakIt();
-      const inst = testInstance(home, runRoot, "alpha");
+      const identify = breakIt();
+      const inst = testInstance(home, runRoot, "alpha", { identify });
       await expect(reset(inst)).rejects.toThrow(/could not determine whether/);
       await expect(stop(inst)).rejects.toThrow(
         /could not determine whether .*Nothing was signalled/,
       );
       await expect(start(inst, { seed: false })).rejects.toThrow(/could not determine whether/);
       const lines: string[] = [];
-      await prune({ home, runRoot, listening: async () => false, log: (l) => lines.push(l) });
+      await prune({
+        home,
+        runRoot,
+        listening: async () => false,
+        log: (l) => lines.push(l),
+        identify,
+      });
       expect(lines.join("\n")).toMatch(/Kept .*could not determine whether/);
-      expect(list({ home, json: true, log: () => {} })[0]?.gatewayState).toBe("unknown");
-      process.env.PATH = realPath;
+      expect(list({ home, json: true, log: () => {}, identify })[0]?.gatewayState).toBe("unknown");
       expect(snapshot(stateDir)).toEqual(before);
       expect(processIdentity(gateway.pid).state).toBe("alive");
     });
@@ -297,11 +302,9 @@ describe("a process is recorded before it can run (B1)", () => {
     await expect(reset(testInstance(home, runRoot, "alpha"))).rejects.toThrow(
       /start process .* is still running/,
     );
-    brokenPs("exit 2");
-    await expect(reset(testInstance(home, runRoot, "alpha"))).rejects.toThrow(
-      /could not determine whether its start process/,
-    );
-    process.env.PATH = realPath;
+    await expect(
+      reset(testInstance(home, runRoot, "alpha", { identify: brokenPs("exit 2") })),
+    ).rejects.toThrow(/could not determine whether its start process/);
     expect(snapshot(stateDir)).toEqual(before);
 
     const inconsistent = seedInstance(tempDir("clawtrate-home-"), "beta", {

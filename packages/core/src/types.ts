@@ -6,6 +6,7 @@ import { initialRoutinesState, type RoutinesState } from "./routines.ts";
 import type { ApprovalCard } from "./approvals.ts";
 import type { InterSessionMessage, LinkedRun, McpToolIdentity } from "./cards.ts";
 import type { TaskActivity } from "./runs.ts";
+import type { SetupState } from "./setup.ts";
 import type { CheckInsState } from "./check-ins.ts";
 import type { SidebarState } from "./sidebar.ts";
 import { initialUsage, type UsageState } from "./usage.ts";
@@ -32,6 +33,8 @@ export type PairingRequest = {
   approveCommand: string;
   /** Where and by whom the command is run, when that is not obvious. */
   approveNote: string | null;
+  /** The waiting line's head, naming where the request waits: "Waiting for approval on devbox." */
+  approveTitle?: string | null;
   requestedScopes: string[];
 };
 
@@ -49,11 +52,32 @@ export type ScopeUpgradeStatus =
   | "requesting"
   /** The gateway holds a pending request; its owner has to approve it. */
   | "pending"
-  /** Approved; the client reconnected with the new grant. */
+  /**
+   * Approved; the rotated token is staged in memory while the host reads back
+   * what the gateway granted and the client reconnects with it (setup §9).
+   */
+  | "confirming"
+  /**
+   * Approved and confirmed: the reconnect showed the established gateway and
+   * exactly what was asked, and the token is saved. On this computer and over
+   * SSH the device's record showed it too; an explicit address has no record read.
+   */
   | "approved"
   | "rejected"
   | "expired"
-  /** The request failed, or was approved without the scope it asked for. */
+  /** The record or the reconnect showed anything else, or couldn't be read: disconnected, no new token saved. */
+  | "unconfirmed"
+  /** The request isn't in the gateway's pending list, and the access isn't there. */
+  | "stale"
+  /** The gateway's pending request for this device isn't the one this client asked for. */
+  | "other-request"
+  /** The gateway's identity couldn't be read where the host looked. */
+  | "identity-unread"
+  /** The identity read where the host looked is a different gateway's. */
+  | "identity-changed"
+  /** The gateway's requests couldn't be read where the host looked. */
+  | "list-unread"
+  /** The request failed. */
   | "error";
 
 /** Stepping up from `operator.read` to `operator.write`, or to `operator.admin` (`scopes` says which). */
@@ -65,6 +89,22 @@ export type ScopeUpgradeState = {
   /** What the person approving runs, chosen by the host as for pairing. */
   approveCommand: string | null;
   approveNote: string | null;
+  /** The waiting line's head, naming where the request waits: "Waiting for approval on devbox." */
+  approveTitle?: string | null;
+  /**
+   * Set with `approved` when this client didn't see the approval as it
+   * happened: the request wasn't pending any more, and the reconnect
+   * confirmed exactly the asked access.
+   */
+  nowShown?: boolean;
+  /**
+   * When the waiting request is checked next, where the host can look at the
+   * gateway's computer (this computer, SSH); null or absent where it can't
+   * (an address route), whose wait is continuous and has no Check now.
+   */
+  checkAt?: number | null;
+  /** Where the request waits, for the actions the bar offers: an SSH route, this computer, an address. */
+  place?: "ssh" | "here" | "address" | null;
   error: string | null;
 };
 
@@ -384,6 +424,12 @@ export type ClawtrateState = {
    * does not read it.
    */
   sidebar?: SidebarState;
+  /**
+   * Setting up on the host's own computer (`setup.ts`): the look's result and
+   * where Connect stands. Written by the host alone; absent where a host
+   * offers no setup.
+   */
+  setup?: SetupState;
   /**
    * The bots' check-ins (`check-ins.ts`): their heartbeat jobs, the scheduler,
    * their own settings and the save under way. Absent until a screen reads them

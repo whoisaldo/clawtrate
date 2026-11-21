@@ -198,7 +198,7 @@ test("F-034 F-472: New bot asks for admin access, then creates a bot on the seco
   await expect(bar).toContainText("Admin access needed.");
   await expect(account.getByRole("button", { name: "Create" })).toHaveCount(0);
   await bar.getByRole("button", { name: "Request admin access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.", { timeout: 15_000 });
+  await expect(bar).toContainText("Waiting for approval.", { timeout: 15_000 });
   await approve();
   await expect(account.getByTestId("admin-bar")).toContainText("Admin access granted.", {
     timeout: 30_000,

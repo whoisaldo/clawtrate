@@ -4,7 +4,10 @@
 
 import {
   admitApproval,
+  APPROVAL_WORDS,
   applyQuestionRequested,
+  approvalForPlace,
+  listUnreadWords,
   emptyActivity,
   INTERACTIVE_SCOPES,
   newRun,
@@ -30,6 +33,18 @@ export const LIVE_SCENES = [
   "access-error",
   "access-pinned",
   "access-granted",
+  "access-waiting-ssh",
+  "access-waiting-here",
+  "access-waiting-address",
+  "access-recovered",
+  "access-identity-unread",
+  "access-confirming",
+  "access-unconfirmed",
+  "access-stale",
+  "access-other-request",
+  "access-identity-changed",
+  "access-identity-changed-address",
+  "access-list-unread",
   "read-wait",
   "composer",
   "run-thinking",
@@ -353,6 +368,129 @@ export function liveScene(
             change: (state) => upgrade(interactive(state), { status: "approved" }),
           },
         ],
+      };
+    // Setup §9's waiting state and outcomes, in the words the host and the client give them.
+    case "access-waiting-ssh":
+    case "access-waiting-here": {
+      const words = approvalForPlace(
+        name === "access-waiting-ssh"
+          ? {
+              route: "ssh",
+              name: "devbox",
+              account: "you@devbox.example",
+              port: 22,
+              profile: "default",
+            }
+          : { route: "this-computer", profile: "clawtrate" },
+        REQUEST_ID,
+      );
+      return {
+        initial: upgrade(base, {
+          status: "pending",
+          requestId: REQUEST_ID,
+          approveCommand: words.command,
+          approveNote: words.note,
+          approveTitle: words.title,
+          // Where the host can look, the request is also checked on a schedule (§9).
+          place: name === "access-waiting-ssh" ? "ssh" : "here",
+          checkAt: now + 4 * SECOND,
+        }),
+        steps: [],
+      };
+    }
+    // An address route: no shell there, so the wait is the gateway's own, with no Check now.
+    case "access-waiting-address":
+      return {
+        initial: upgrade(base, {
+          status: "pending",
+          requestId: REQUEST_ID,
+          approveCommand: `openclaw devices approve ${REQUEST_ID}`,
+          approveNote:
+            "Run this on the gateway's computer, with `--profile <name>` if the gateway doesn't use the default profile:",
+          approveTitle: "Waiting for approval.",
+          place: "address",
+          checkAt: null,
+        }),
+        steps: [],
+      };
+    // A wait this device lost, then confirmed: the strip says so once, then Granted.
+    case "access-recovered":
+      return {
+        initial: upgrade(base, {
+          status: "confirming",
+          requestId: REQUEST_ID,
+          place: "ssh",
+        }),
+        steps: [
+          {
+            after: 300,
+            change: (state) => upgrade(interactive(state), { status: "approved", nowShown: true }),
+          },
+        ],
+      };
+    case "access-confirming":
+      return { initial: upgrade(base, { status: "confirming", requestId: REQUEST_ID }), steps: [] };
+    case "access-unconfirmed":
+    case "access-identity-changed":
+    case "access-identity-changed-address":
+    case "access-identity-unread": {
+      const outcome =
+        name === "access-unconfirmed"
+          ? "unconfirmed"
+          : name === "access-identity-changed" || name === "access-identity-changed-address"
+            ? "identity-changed"
+            : "identity-unread";
+      const state = upgrade(base, {
+        status: outcome,
+        requestId: REQUEST_ID,
+        approveCommand: null,
+        place: name === "access-identity-changed-address" ? "address" : "ssh",
+      });
+      return {
+        initial: {
+          ...state,
+          connection: {
+            ...state.connection,
+            status: "error",
+            error: {
+              code:
+                outcome === "unconfirmed"
+                  ? "APPROVAL_UNCONFIRMED"
+                  : outcome === "identity-changed"
+                    ? "APPROVAL_IDENTITY_CHANGED"
+                    : "APPROVAL_IDENTITY_UNREAD",
+              message:
+                outcome === "unconfirmed"
+                  ? `${APPROVAL_WORDS.unconfirmed.title} ${APPROVAL_WORDS.unconfirmed.detail}`
+                  : outcome === "identity-changed"
+                    ? APPROVAL_WORDS.identityChanged
+                    : APPROVAL_WORDS.identityUnread,
+              hint: null,
+            },
+          },
+        },
+        steps: [],
+      };
+    }
+    case "access-stale":
+      return {
+        initial: upgrade(base, { status: "stale", requestId: REQUEST_ID, approveCommand: null }),
+        steps: [],
+      };
+    case "access-other-request":
+      return {
+        initial: upgrade(base, { status: "other-request", requestId: null, approveCommand: null }),
+        steps: [],
+      };
+    case "access-list-unread":
+      return {
+        initial: upgrade(base, {
+          status: "list-unread",
+          requestId: REQUEST_ID,
+          approveCommand: `openclaw devices approve ${REQUEST_ID}`,
+          error: listUnreadWords("devbox", 2),
+        }),
+        steps: [],
       };
     case "read-wait":
       return {

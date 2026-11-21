@@ -265,7 +265,7 @@ test("admin is asked for by its button only, and once approved the controls appe
   await openRoutines();
   const bar = view().getByTestId("admin-bar");
   await bar.getByRole("button", { name: "Request admin access" }).click();
-  await expect(bar).toContainText("Waiting for the gateway's owner.", { timeout: 15_000 });
+  await expect(bar).toContainText("Waiting for approval.", { timeout: 15_000 });
   await approve();
   await expect(view().getByTestId("admin-bar")).toContainText("Admin access granted.", {
     timeout: 30_000,

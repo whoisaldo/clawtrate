@@ -21,7 +21,7 @@ type FakeProcess = ForwardProcess & {
   listen(): void;
   exit(failure: SshFailure): void;
   ended: boolean;
-  port: number;
+  port: string;
 };
 
 function harness(verifyResults: VerifyResult[] = [], probeResults: ProbeResult[] = []) {
@@ -34,7 +34,7 @@ function harness(verifyResults: VerifyResult[] = [], probeResults: ProbeResult[]
   const verifies: Array<(result: VerifyResult) => void> = [];
   const signals: AbortSignal[] = [];
   const deps: ForwardDeps = {
-    pickPort: async () => nextPort++,
+    pickLocal: async () => `/sockets/f${nextPort++}.s`,
     start: (port) => {
       const listening: Array<() => void> = [];
       const exits: Array<(failure: SshFailure) => void> = [];
@@ -134,12 +134,12 @@ describe("the forward's states", () => {
     expect(h.forward.state).toEqual({ phase: "starting", attempt: 1 });
     await h.up();
     expect(h.states.map((s) => s.phase)).toEqual(["starting", "verifying", "up"]);
-    expect(h.forward.state).toEqual({ phase: "up", localPort: 50000, restored: false });
+    expect(h.forward.state).toEqual({ phase: "up", local: "/sockets/f50000.s", restored: false });
   });
 
-  it("is up only after a connection through it was answered as HTTP, and only then runs the LOOK", async () => {
+  it("is up only after a connection through it was answered as HTTP: a failed connection may run the LOOK, never put it up", async () => {
     const h = harness(
-      [{ kind: "same" }],
+      [{ kind: "cant-tell" }, { kind: "same" }],
       ["no-answer", "forwarding-refused", "gateway-closed", "http"],
     );
     h.forward.open();
@@ -155,17 +155,29 @@ describe("the forward's states", () => {
     });
     await h.advance(2000);
     await h.up();
-    // A forwarded connection that failed says the port didn't answer, not that OpenClaw stopped.
+    // A forwarded connection that failed: one LOOK, and while it can't tell, the port didn't answer.
     expect(h.forward.state).toMatchObject({
       phase: "waiting",
       cause: { kind: "gateway-not-answering" },
     });
-    expect(h.verifyCalls()).toBe(0);
+    expect(h.verifyCalls()).toBe(1);
     expect(h.states.some((s) => s.phase === "up")).toBe(false);
     await h.advance(4000);
     await h.up();
-    expect(h.verifyCalls()).toBe(1);
+    expect(h.verifyCalls()).toBe(2);
     expect(h.forward.state.phase).toBe("up");
+  });
+
+  it("runs one LOOK on the pinned account when the gateway's port closed through a live SSH route, and says stopped only when it is", async () => {
+    const h = harness([{ kind: "not-running" }], ["gateway-closed"]);
+    h.forward.open();
+    await h.up();
+    expect(h.verifyCalls()).toBe(1);
+    expect(h.forward.state).toMatchObject({
+      phase: "waiting",
+      cause: { kind: "gateway-not-running" },
+    });
+    await h.forward.close();
   });
 
   it("is not up while the LOOK is still running", async () => {
@@ -197,7 +209,7 @@ describe("the forward's states", () => {
     await h.advance(1);
     expect(h.processes).toHaveLength(2);
     await h.up();
-    expect(h.forward.state).toEqual({ phase: "up", localPort: 50001, restored: true });
+    expect(h.forward.state).toEqual({ phase: "up", local: "/sockets/f50001.s", restored: true });
   });
 
   it("backs off further with each failure in a row, and starts over once up", async () => {
@@ -279,7 +291,7 @@ describe("the forward's states", () => {
     expect(h.forward.state.phase).toBe("up");
   });
 
-  it("picks another local port at once when its port was taken, a bounded number of times", async () => {
+  it("picks another local socket at once when its socket was taken, a bounded number of times", async () => {
     const h = harness();
     h.forward.open();
     await h.flush();
@@ -288,7 +300,9 @@ describe("the forward's states", () => {
       await h.flush();
       expect(h.forward.state.phase).toBe("starting");
     }
-    expect(h.processes.map((p) => p.port)).toEqual([50000, 50001, 50002, 50003, 50004, 50005]);
+    expect(h.processes.map((p) => p.port)).toEqual(
+      [50000, 50001, 50002, 50003, 50004, 50005].map((n) => `/sockets/f${n}.s`),
+    );
     h.last().exit({ kind: "local-port-taken", exit: 255 });
     await h.flush();
     expect(h.forward.state).toMatchObject({
@@ -530,7 +544,7 @@ describe("the forward's attempts", () => {
     expect(h.forward.state).toMatchObject({ phase: "up" });
     await h.advance(60000);
     expect(h.processes).toHaveLength(2);
-    expect(h.forward.state).toMatchObject({ phase: "up", localPort: h.processes[1]!.port });
+    expect(h.forward.state).toMatchObject({ phase: "up", local: h.processes[1]!.port });
     await h.forward.close();
   });
 

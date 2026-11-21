@@ -7,7 +7,7 @@ import type {
   SidebarState,
   Task,
 } from "@clawtrate/core";
-import { ACTIVE_RUN_MESSAGE } from "@clawtrate/core";
+import { ACTIVE_RUN_MESSAGE, isApprovalDisconnect } from "@clawtrate/core";
 import {
   useCallback,
   useEffect,
@@ -83,7 +83,9 @@ export function presenceWords(connection: ConnectionState, catchingUp: boolean):
     case "pairing":
       return "Awaiting approval";
     case "error":
-      return "Can't reach the gateway";
+      return isApprovalDisconnect(connection.error?.code)
+        ? "Disconnected"
+        : "Can't reach the gateway";
     case "idle":
       return "Not connected";
     case "disconnected":
@@ -475,6 +477,7 @@ function tidy(entries: MenuEntry[]): MenuEntry[] {
 }
 
 export function Rail({
+  routeName = null,
   bots,
   tasksByBot,
   discovery,
@@ -500,6 +503,8 @@ export function Rail({
   onOpenRoutines,
   onOpenRoutineRun,
 }: {
+  /** The SSH route's account: the gateway's name when the address is a forward's (setup.md §8). */
+  routeName?: string | null;
   bots: Bot[];
   tasksByBot: Record<string, Task[]>;
   discovery: DiscoveryState;
@@ -562,7 +567,7 @@ export function Rail({
     null,
   );
   const listRef = useRef<HTMLUListElement>(null);
-  const gateway = gatewayLabel(connection.gatewayUrl);
+  const gateway = routeName ?? gatewayLabel(connection.gatewayUrl);
   const words = presenceWords(connection, catchingUp);
   const dot = presenceDot(connection, catchingUp);
   const onScreenKey = routinesOpen ? null : (selection.task?.key ?? null);

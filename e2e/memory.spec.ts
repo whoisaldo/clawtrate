@@ -106,7 +106,7 @@ test("F-212: edits a root item after an explicit admin request", async ({ page }
   const memory = await openMemory(page);
   const access = memory.getByRole("button", { name: "Request admin access" });
   await access.click();
-  await expect(memory.getByText("Waiting for the gateway's owner.")).toBeVisible();
+  await expect(memory.getByText("Waiting for approval.")).toBeVisible();
   await approve();
   await expect(page.getByTestId("admin-bar")).toContainText("Admin access granted.", {
     timeout: 30_000,

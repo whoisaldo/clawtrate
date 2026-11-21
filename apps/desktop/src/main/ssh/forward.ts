@@ -1,9 +1,11 @@
 // The forward's life (docs/design/setup.md, section 8): one `ssh -N -L` per
 // route, reported to the caller in every state, restarted by itself after a
 // drop with a stated back-off, and usable again only after a repeated LOOK
-// names the same gateway service on the same port. Closing it is explicit and
-// waits until its process is gone. The process, the LOOK, the port picker and
-// the clock are passed in, so the state machine is tested without `ssh`.
+// names the same gateway service on the same port. Each attempt listens on a
+// fresh local socket of its own, so the local address of an "up" names that
+// attempt and no other. Closing it is explicit and waits until its process is
+// gone. The process, the LOOK, the socket picker and the clock are passed in,
+// so the state machine is tested without `ssh`.
 
 import { MAX_FORWARD_LISTENERS } from "@clawtrate/core";
 
@@ -15,7 +17,7 @@ export const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000] as const;
 export const BACKOFF_STEADY_MS = 30000;
 /** After this long without the forward up, the state says so (`longOutage`). */
 export const LONG_OUTAGE_MS = 120000;
-/** A lost race for the local port is retried at once, this many times in a row. */
+/** A lost race for the local socket is retried at once, this many times in a row. */
 export const PORT_RETRIES = 5;
 
 export const backoffMs = (failures: number) =>
@@ -42,8 +44,9 @@ export type ForwardCause =
 
 export type ForwardState =
   | { phase: "starting"; attempt: number }
-  | { phase: "verifying"; localPort: number; attempt: number }
-  | { phase: "up"; localPort: number; restored: boolean }
+  /** `local` is the attempt's own local socket: a path in the host's private SSH folder. */
+  | { phase: "verifying"; local: string; attempt: number }
+  | { phase: "up"; local: string; restored: boolean }
   | {
       phase: "waiting";
       cause: ForwardCause;
@@ -75,10 +78,11 @@ export type VerifyResult =
   | { kind: "failed"; failure: SshFailure };
 
 export type ForwardDeps = {
-  pickPort(): Promise<number>;
-  start(localPort: number): ForwardProcess;
+  /** A fresh local socket for one attempt, which no other attempt has had. */
+  pickLocal(): Promise<string>;
+  start(local: string): ForwardProcess;
   /** Makes one connection through the forward: did the far end answer as an HTTP service? */
-  probe(localPort: number, process: ForwardProcess, signal: AbortSignal): Promise<ProbeResult>;
+  probe(local: string, process: ForwardProcess, signal: AbortSignal): Promise<ProbeResult>;
   /** Runs the LOOK again and compares the gateway service on the gateway's port; `signal` ends it. */
   verify(signal: AbortSignal): Promise<VerifyResult>;
   now(): number;
@@ -207,9 +211,9 @@ export class ForwardSupervisor {
     // A timed retry or "retry now" waits until the ssh it replaces has ended.
     await this.retiring;
     if (generation !== this.generation || this.closed()) return;
-    let port: number;
+    let port: string;
     try {
-      port = await this.deps.pickPort();
+      port = await this.deps.pickLocal();
     } catch {
       if (generation === this.generation) this.fail({ kind: "local-port-taken" });
       return;
@@ -245,7 +249,7 @@ export class ForwardSupervisor {
     process.onListening(() => {
       if (generation !== this.generation || this.closed()) return;
       this.portRetries = 0;
-      this.set({ phase: "verifying", localPort: port, attempt: this.failures + 1 });
+      this.set({ phase: "verifying", local: port, attempt: this.failures + 1 });
       // The listener is only the cue: up needs one answered connection through it, then the LOOK.
       const checked = this.deps
         .probe(port, process, signal)
@@ -253,7 +257,13 @@ export class ForwardSupervisor {
         .then((answer) => {
           if (generation !== this.generation || this.closed()) return;
           if (answer === "forwarding-refused") return this.restart({ kind: "forwarding-refused" });
-          if (answer === "gateway-closed") return this.restart({ kind: "gateway-not-answering" });
+          // The SSH route is alive and the gateway's port is closed: one LOOK says whether the
+          // service there is stopped, or its state is unknown.
+          if (answer === "gateway-closed")
+            return this.deps.verify(signal).then(
+              (result) => this.portClosed(generation, result),
+              () => this.portClosed(generation, { kind: "cant-tell" }),
+            );
           if (answer !== "http") return this.restart({ kind: "cant-tell" });
           return this.deps.verify(signal).then(
             (result) => this.verified(generation, port, result),
@@ -264,14 +274,14 @@ export class ForwardSupervisor {
     });
   }
 
-  private verified(generation: number, port: number, result: VerifyResult): void {
+  private verified(generation: number, port: string, result: VerifyResult): void {
     if (generation !== this.generation || this.closed()) return;
     switch (result.kind) {
       case "same": {
         const restored = this.everUp;
         this.everUp = true;
         this.failures = 0;
-        this.set({ phase: "up", localPort: port, restored });
+        this.set({ phase: "up", local: port, restored });
         return;
       }
       case "different":
@@ -291,6 +301,21 @@ export class ForwardSupervisor {
         this.restart({ kind: "cant-tell" });
         return;
     }
+  }
+
+  /** The gateway's port closed through a live SSH route, and what one LOOK said of its service. */
+  private portClosed(generation: number, result: VerifyResult): void {
+    if (generation !== this.generation || this.closed()) return;
+    if (result.kind === "not-running") return this.restart({ kind: "gateway-not-running" });
+    if (result.kind === "different") {
+      void this.finish("different-gateway");
+      return;
+    }
+    if (result.kind === "failed" && result.failure.kind === "host-key-changed") {
+      void this.finish("key-changed");
+      return;
+    }
+    this.restart({ kind: "gateway-not-answering" });
   }
 
   /** The forward is not usable: end its process, then wait and try again. */

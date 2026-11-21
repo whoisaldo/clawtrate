@@ -202,7 +202,7 @@ export function useCheckInsSection({
       </>
     ),
     foot: granted ? (
-      <GrantedBar />
+      <GrantedBar nowShown={connection.upgrade.nowShown === true} />
     ) : admin ? null : (
       <AdminBar connection={connection} info={info} need="Changing check-ins needs admin access." />
     ),

@@ -1890,7 +1890,7 @@ describe("a budget write through the client", () => {
     gateway.handlers["device.scopes.requestUpgrade"] = () => ({ requestId: "up-1" });
     gateway.handlers["device.scopes.waitUpgrade"] = () => wait.promise;
     const storage = memoryStorage({
-      connection: JSON.stringify({ url: URL_A, token: null }),
+      connection: JSON.stringify({ url: URL_A, token: null, address: true }),
       [tokenKey(URL_A)]: JSON.stringify({
         token: "device-token",
         grantedScopes: READ_SCOPES,

@@ -1181,7 +1181,7 @@ describe("a typed API key leaves no trace", () => {
   async function keyClient(fake = new AccountsGateway()) {
     const logs: string[] = [];
     const storage = memoryStorage({
-      connection: JSON.stringify({ url: URL_A, token: null }),
+      connection: JSON.stringify({ url: URL_A, token: null, address: true }),
       [tokenKey(URL_A)]: JSON.stringify({
         token: "device-token",
         grantedScopes: ADMIN_SCOPES,

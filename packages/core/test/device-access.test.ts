@@ -95,7 +95,7 @@ describe("device access", () => {
     fake.gateway.handlers["device.scopes.requestUpgrade"] = () => ({ requestId: "up-9" });
     fake.gateway.handlers["device.scopes.waitUpgrade"] = () => wait.promise;
     const storage = memoryStorage({
-      connection: JSON.stringify({ url: URL_A, token: null }),
+      connection: JSON.stringify({ url: URL_A, token: null, address: true }),
       [tokenKey(URL_A)]: JSON.stringify({
         token: "device-token",
         grantedScopes: READ_SCOPES,
@@ -231,7 +231,7 @@ describe("device access", () => {
     devices.gateway.handlers["device.pair.rename"] = () => ({});
     const scopes = [READ_SCOPE, PAIRING_SCOPE];
     const storage = memoryStorage({
-      connection: JSON.stringify({ url: URL_A, token: null }),
+      connection: JSON.stringify({ url: URL_A, token: null, address: true }),
       [tokenKey(URL_A)]: JSON.stringify({
         token: "device-token",
         grantedScopes: scopes,

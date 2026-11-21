@@ -23,8 +23,7 @@ export const LIVE_VIEWS: Array<{
   {
     scene: "access-requested",
     rows: "F-456",
-    ready: (page) =>
-      expect(page.getByTestId("access-bar")).toContainText("Waiting for the gateway's owner"),
+    ready: (page) => expect(page.getByTestId("access-bar")).toContainText("Waiting for approval"),
   },
   {
     scene: "access-denied",
