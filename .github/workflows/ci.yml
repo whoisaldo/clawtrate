@@ -76,8 +76,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
-    env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -90,7 +88,8 @@ jobs:
       - run: npm install --global openclaw@2026.10.6
       - run: openclaw --version
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm e2e --shard=${{ matrix.shard }}/3
+      # e2e/setup.spec.ts drives the desktop app's development build, which needs a display.
+      - run: xvfb-run --auto-servernum pnpm e2e --shard=${{ matrix.shard }}/3
       # What a failed check saw: traces and error contexts, kept for a few days.
       - if: failure()
         uses: actions/upload-artifact@v7

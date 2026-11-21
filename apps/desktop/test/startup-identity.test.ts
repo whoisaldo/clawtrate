@@ -8,7 +8,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_ID } from "../src/main/identity.ts";
 
-const recorded = vi.hoisted(() => ({ calls: [] as string[], packaged: true }));
+const recorded = vi.hoisted(() => ({
+  calls: [] as string[],
+  packaged: true,
+  /** The data folders a refused start under the test runner chose. */
+  userData: [] as string[],
+}));
 
 vi.mock("electron", () => {
   const { calls } = recorded;
@@ -45,6 +50,7 @@ vi.mock("electron", () => {
     getAppPath: () => "/app",
     getVersion: () => "1.0.0",
     getPath: () => dataDir,
+    setPath: (_name: string, path: string) => recorded.userData.push(path),
     whenReady: () => Promise.resolve(),
     on: () => app,
     requestSingleInstanceLock: () => true,
@@ -75,7 +81,7 @@ vi.mock("../src/host/runtime.ts", () => ({
   readDevConnection: () => null,
   startHostRuntime: () =>
     Promise.resolve({
-      client: { state: {}, store: { subscribe: () => () => {} }, stop() {} },
+      client: { state: {}, store: { subscribe: () => () => {} }, stop() {}, setSetup() {} },
       info: {},
       policy: {},
     }),
@@ -96,6 +102,7 @@ afterEach(() => {
   Object.defineProperty(process, "platform", platform);
   vi.unstubAllEnvs();
   rmSync(dataDir, { recursive: true, force: true });
+  for (const dir of recorded.userData.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 /** Runs the main process's startup as `os`, packaged or not, until it has created its window. */

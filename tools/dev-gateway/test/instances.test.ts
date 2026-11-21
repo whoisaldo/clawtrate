@@ -350,7 +350,7 @@ describe("stop signals only processes it can prove are this checkout's (A1)", ()
     const unrelated = liveProcess();
     seedInstance(home, "alpha", {
       runRoot,
-      gateway: { pid: unrelated.pid, identity: "Thu Jan  1 00:00:00 1970" },
+      gateway: { pid: unrelated.pid, identity: "1970-01-01T00:00:00Z" },
     });
     const sent = watchSignals();
     const inst = testInstance(home, runRoot, "alpha");

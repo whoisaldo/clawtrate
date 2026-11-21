@@ -6,6 +6,7 @@ How to run Clawtrate from a checkout. [CONTRIBUTING.md](../../CONTRIBUTING.md) c
 - [Testing](testing.md): the checks, what each one covers, the fixture mode and the visual tests.
 - [The SSH transport's tests](ssh.md): the tests of "Another computer" over SSH, against an `sshd` of their own.
 - [Packaging](packaging.md): building the desktop app for macOS and Windows, signing, and the logo and icons.
+- [The first screen and the look on this computer](setup.md): why a development build looks only in a sandbox, and how to run "This computer" against a development instance.
 - [Desktop releases](releases.md) covers cutting, publishing and withdrawing a Mac beta, release candidates for Stable and Beta, signing checks and the owner's signed trial.
 
 ## Setup
@@ -48,4 +49,4 @@ The gateway connection, the device key and pairing all live in the preview host 
 pnpm desktop
 ```
 
-This builds and starts the Electron app. The first run downloads the Electron binary. Development builds offer the same **Use the development gateway** button, and pair the same way.
+This builds and starts the Electron app. The first run downloads the Electron binary. Its first screen asks where OpenClaw runs; **Advanced** opens the address-and-token form. A development build starts without a development gateway, so it doesn't offer **Use the development gateway**: type its address and token, or use the web preview above. "This computer" looks only in a sandbox you give it in a development build: [setup.md](setup.md) says how. A development build doesn't reopen the gateway it was last connected to; choose it again on the first screen.

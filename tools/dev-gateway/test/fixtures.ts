@@ -76,7 +76,7 @@ export function childFor(pid: number): ChildProcess {
 /** A PID whose process has exited, with the identity it had. */
 export function deadProcess(): Proc {
   const result = spawnSync("true");
-  return { pid: result.pid!, identity: "Thu Jan  1 00:00:00 1970" };
+  return { pid: result.pid!, identity: "1970-01-01T00:00:00Z" };
 }
 
 export function stopChildren(): void {

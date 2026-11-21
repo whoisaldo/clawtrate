@@ -20,7 +20,8 @@ import {
   shell,
   type WebContents,
 } from "electron";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,6 +36,13 @@ import {
   startHostRuntime,
   type HostRuntime,
 } from "../host/runtime.ts";
+import { SetupController } from "../setup/controller.ts";
+import { ProgramRunner } from "../setup/programs.ts";
+import { resolveSetupLaunch, sandboxOpener, type Opened } from "../setup/sandbox.ts";
+import { startSyntheticGateway } from "../setup/synthetic-gateway.ts";
+import { desktopStartup } from "../setup/startup.ts";
+import { processIdentity } from "../../../../tools/dev-gateway/src/state-guard.ts";
+import { accountHome, productionWorld, type SetupRefusedError } from "../setup/world.ts";
 
 app.setName("Clawtrate");
 // On Windows, the taskbar button belongs to the installer's shortcuts from the first window.
@@ -78,6 +86,127 @@ function openExternally(raw: string): void {
 
 let runtime: HostRuntime | null = null;
 let window: BrowserWindow | null = null;
+/** The programs setup started, ended by PID when the app quits. */
+const programs = new ProgramRunner();
+let closeSetup: () => Promise<void> = async () => {};
+
+/** Whether a command-line switch was given, to Chromium or to the app. */
+function hasSwitch(name: string): boolean {
+  return (
+    app.commandLine?.hasSwitch(name) === true ||
+    process.argv.some((arg) => arg === `--${name}` || arg.startsWith(`--${name}=`))
+  );
+}
+
+/** A switch's value, given to Chromium or to the app; empty when it has none. */
+function switchValue(name: string): string {
+  return app.commandLine?.getSwitchValue(name) ?? "";
+}
+
+/**
+ * How this launch sets up on this computer (docs/development/setup.md),
+ * resolved before the single-instance lock and the host runtime: the real
+ * computer for a packaged app nothing automates; otherwise only the sandbox
+ * the launch names, checked now, or a refusal.
+ */
+const SETUP = resolveSetupLaunch({
+  packaged: app.isPackaged,
+  env: process.env,
+  switches: hasSwitch,
+  switchValue,
+  context: { platform: process.platform, home: accountHome(), uid: process.getuid?.() ?? null },
+});
+
+/**
+ * What the host starts on, from that launch, also before the lock: a sandbox's
+ * checked `app-data` or, for a refused or automated Windows start, the folder named with
+ * `--user-data-dir` or else a fresh private temporary folder as its data
+ * folder, and then no development gateway and no saved gateway reopened.
+ * Only a person's packaged app keeps the ordinary data folder and resumes.
+ */
+const STARTUP = desktopStartup(SETUP, {
+  packaged: app.isPackaged,
+  devConnection: () =>
+    readDevConnection(REPO_ROOT, { instance: selectInstance(undefined, process.env) }),
+  autoConnectDev: () => process.env.CLAWTRATE_AUTOCONNECT_DEV === "1",
+  launchData: () => switchValue("user-data-dir") || null,
+  privateData: () => mkdtempSync(join(tmpdir(), "clawtrate-refused-")),
+});
+if (STARTUP.userData) app.setPath("userData", STARTUP.userData);
+
+/**
+ * The checkout whose run records prove a sandbox's run: this development
+ * build's own; a packaged app is told by its launch check.
+ */
+function launcherCheckout(): string | null {
+  const path = app.isPackaged ? switchValue("clawtrate-setup-checkout") : REPO_ROOT;
+  try {
+    return path ? realpathSync(path) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What each look and Connect opens: the real computer, the sandbox, or the refusal. */
+function setupOpener(): {
+  open: () => Promise<Opened | SetupRefusedError>;
+  close: () => Promise<void>;
+} {
+  const close = async () => {};
+  if (SETUP.kind === "refused") return { open: async () => SETUP.error, close };
+  if (SETUP.kind === "sandbox") {
+    return sandboxOpener({
+      file: SETUP.file,
+      sandbox: SETUP.sandbox,
+      platform: process.platform,
+      context: {
+        platform: process.platform,
+        home: accountHome(),
+        uid: process.getuid?.() ?? null,
+        checkout: launcherCheckout(),
+      },
+      startGateway: startSyntheticGateway,
+      log: (line) => console.log(line),
+    });
+  }
+  // The real computer; on Windows the look starts nothing.
+  const home = accountHome();
+  return {
+    open: async () => ({
+      world: productionWorld({
+        home: home ?? "",
+        appData: app.getPath("userData"),
+        platform: process.platform,
+        lang: process.env.LANG,
+      }),
+      run: programs.run,
+      identify: processIdentity,
+    }),
+    close,
+  };
+}
+
+/** The host's own confirmation (docs/design/setup.md §2): a native dialog, never the page. */
+async function confirmNatively(confirmation: {
+  message: string;
+  detail: string;
+  confirm: string;
+}): Promise<boolean> {
+  const options = {
+    type: "question" as const,
+    message: confirmation.message,
+    detail: confirmation.detail,
+    buttons: [confirmation.confirm, "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  };
+  const owner = window && !window.isDestroyed() ? window : null;
+  const answer = owner
+    ? await dialog.showMessageBox(owner, options)
+    : await dialog.showMessageBox(options);
+  return answer.response === 0;
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -212,7 +341,9 @@ async function saveHeld(
 
 /** The device key and tokens live here, readable by this user only. */
 function privateDataDir(): string {
-  const dir = process.env.CLAWTRATE_DATA_DIR ?? join(app.getPath("userData"), "gateway");
+  // Only a person's app takes its folder from the environment; every other run keeps its own.
+  const chosen = SETUP.kind === "production" ? process.env.CLAWTRATE_DATA_DIR : undefined;
+  const dir = chosen ?? join(app.getPath("userData"), "gateway");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") chmodSync(dir, 0o700);
   return dir;
@@ -225,17 +356,17 @@ async function main(): Promise<void> {
     app.dock?.setIcon(join(RESOURCES, "icon-mac.png"));
   }
 
-  const devInstance = selectInstance(undefined, process.env);
+  const devInstance = STARTUP.devGateway ? selectInstance(undefined, process.env) : null;
   runtime = await startHostRuntime({
     kind: "desktop",
     displayName: "Clawtrate Desktop",
     dataDir: privateDataDir(),
-    // Only development builds look for the local development gateway.
-    // CLAWTRATE_DEV_INSTANCE selects a named development instance. Its address
-    // is opened only while this checkout can still prove it, before every attempt.
-    devGateway: app.isPackaged ? null : readDevConnection(REPO_ROOT, { instance: devInstance }),
+    // A sandboxed or refused start (every development build and automated run) has no
+    // development gateway, doesn't auto-connect and never resumes a saved gateway.
+    devGateway: STARTUP.devGateway,
     recheckDevGateway: () => readDevConnection(REPO_ROOT, { instance: devInstance }),
-    autoConnectDev: process.env.CLAWTRATE_AUTOCONNECT_DEV === "1",
+    autoConnectDev: STARTUP.autoConnectDev,
+    resume: STARTUP.resume,
   });
   const { client, info, policy } = runtime;
   const userDir = app.getPath("userData");
@@ -259,6 +390,18 @@ async function main(): Promise<void> {
   );
   ipcMain.handle("clawtrate:update:track", (_event, track: unknown) => updates.chooseTrack(track));
   ipcMain.handle("clawtrate:update:download", (_event, id: unknown) => updates.download(id));
+  // Setup on this computer. A development build and every automated run look only in a sandbox.
+  const opener = setupOpener();
+  closeSetup = opener.close;
+  const setup = new SetupController({
+    client,
+    open: opener.open,
+    stopPrograms: () => programs.stopAll(),
+    confirm: confirmNatively,
+    log: (line) => console.log(line),
+  });
+  policy.setup = setup;
+  info.setup = { look: true, pair: true, platform: process.platform };
 
   ipcMain.handle("clawtrate:hello", (): { info: HostInfo; state: ClawtrateState } => ({
     info,
@@ -343,7 +486,22 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin" || process.env.CLAWTRATE_SCREENSHOT) app.quit();
 });
 
-app.on("before-quit", () => runtime?.client.stop());
+/** Set once setup's programs and their workers are gone: quitting then goes ahead. */
+let programsEnded = false;
+app.on("before-quit", (event) => {
+  // The programs setup started, and the workers in their groups, end before the app does:
+  // quitting waits for them (killed after their grace), then quits again.
+  if (!programsEnded && programs.running().length + programs.groupsLeft() > 0) {
+    event.preventDefault();
+    void programs.stopAllAndWait().finally(() => {
+      programsEnded = true;
+      app.quit();
+    });
+    return;
+  }
+  void closeSetup();
+  runtime?.client.stop();
+});
 
 // One app per data folder: a second launch focuses the running window and exits.
 if (app.requestSingleInstanceLock()) {

@@ -211,7 +211,7 @@ describe("the OpenClaw spawn boundary", () => {
 
   it("refuses a gateway whose PID now belongs to another process", () => {
     const home = tempHome();
-    const reused = { pid: liveProcess().pid, identity: "Thu Jan  1 00:00:00 1970" };
+    const reused = { pid: liveProcess().pid, identity: "1970-01-01T00:00:00Z" };
     const { runId } = seedInstance(home, null, { gateway: reused });
     writeRun(join(home, "run", "state.json"), runFor(runId));
     expect(countingRunner(home).runner.refusal()).toMatch(/is not running/);

@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { safeFileName, writeExactly, type SaveFs } from "../src/main/save.ts";
 
 type Chosen = { canceled: boolean; filePath?: string };
@@ -17,6 +17,8 @@ const electron = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, raw: unknown) => unknown>(),
   dialogs: [] as Array<{ options: { defaultPath: string }; answer: (chosen: Chosen) => void }>,
   appDir: "",
+  /** The data folder a refused start under the test runner chose. */
+  userData: [] as string[],
 }));
 vi.mock("electron", () => {
   const app = {
@@ -25,6 +27,7 @@ vi.mock("electron", () => {
     getVersion: () => "1.0.0",
     getAppPath: () => electron.appDir,
     getPath: () => electron.appDir,
+    setPath: (_name: string, path: string) => electron.userData.push(path),
     whenReady: async () => {},
     isPackaged: true,
     on() {},
@@ -70,7 +73,7 @@ vi.mock("../src/host/runtime.ts", () => ({
   readDevConnection: () => null,
   selectInstance: () => undefined,
   startHostRuntime: async () => ({
-    client: { state: {}, store: { subscribe: () => () => {} }, stop() {} },
+    client: { state: {}, store: { subscribe: () => () => {} }, stop() {}, setSetup() {} },
     info: {},
     policy: {},
   }),
@@ -176,6 +179,9 @@ describe("the main process's save handler", () => {
   });
   afterEach(() => {
     while (electron.dialogs.length) answer({ canceled: true });
+  });
+  afterAll(() => {
+    for (const dir of electron.userData.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
   it("F-319: writes exactly the bytes the page handed over, where the dialog chose", async () => {

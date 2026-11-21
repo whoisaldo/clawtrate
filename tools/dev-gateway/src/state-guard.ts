@@ -14,7 +14,15 @@
 
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { isNamedInstancePort, validateInstanceName } from "./instance.ts";
 
@@ -170,35 +178,73 @@ function kernelSaysAbsent(pid: number): boolean | string {
 const PS_ROW =
   /^\s*([DIRSTUWXZt?][A-Za-z+<>]{0,7})\s+((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*$/;
 
-/** The process's start time from `ps`, which together with its PID identifies it. */
-export const processIdentity: Identify = (pid) => {
-  if (!validPid(pid)) return unknown(`${String(pid)} is not a process id this tool checks`);
-  const absent = kernelSaysAbsent(pid);
-  if (absent === true) return { state: "exited", how: "absent" };
-  if (typeof absent === "string") return unknown(absent);
-  const result = spawnSync("ps", ["-o", "stat=", "-o", "lstart=", "-p", String(pid)], {
-    encoding: "utf8",
-    timeout: 5000,
-    // The start time is validated below, so its day and month names must be English.
-    env: { ...process.env, LC_ALL: "C" },
-  });
-  // A process that exited between the two looks makes ps fail; that much is still positive.
-  const failed = (reason: string): Lookup =>
-    kernelSaysAbsent(pid) === true ? { state: "exited", how: "absent" } : unknown(reason);
-  if (result.error) return failed(`could not run ps for pid ${pid}: ${result.error.message}`);
-  if (result.status !== 0) {
-    return failed(`ps for pid ${pid} exited with ${result.status ?? result.signal}`);
-  }
-  // Only one complete row counts: a known state field and a whole start time. Anything
-  // else, such as an error message printed with exit status 0, is not an answer, and
-  // must never become an identity that differs from the recorded one.
-  const rows = result.stdout.split("\n").filter((line) => line.trim() !== "");
-  const match = rows.length === 1 ? PS_ROW.exec(rows[0]!) : null;
-  if (!match) return failed(`could not read ps output for pid ${pid}`);
-  // A zombie has exited; only its parent has not collected it yet.
-  if (match[1]!.startsWith("Z")) return { state: "exited", how: "zombie" };
-  return { state: "alive", identity: match[2]! };
-};
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * A start time as `ps` prints it in UTC ("Mon Nov 16 21:27:01 2026"), as the
+ * identity this tool records: "2026-11-16T21:27:01Z", the same whatever time
+ * zone the caller runs in.
+ */
+function utcIdentity(lstart: string): string | null {
+  const [, month, day, time, year] = lstart.trim().split(/\s+/);
+  const index = MONTHS.indexOf(month ?? "");
+  if (index < 0 || !day || !time || !year) return null;
+  return `${year}-${String(index + 1).padStart(2, "0")}-${day.padStart(2, "0")}T${time}Z`;
+}
+
+/**
+ * An identity recorded by earlier versions: the start time in the local time
+ * zone of whoever recorded it, which can't be compared with one read now.
+ */
+const LOCAL_IDENTITY =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}$/;
+
+/** Where the system keeps `ps`, in order; a merged `/usr` has both. */
+const SYSTEM_PS = ["/bin/ps", "/usr/bin/ps"];
+
+/**
+ * A process lookup that runs the first of `candidates` that exists: the
+ * process's start time from `ps`, which together with its PID identifies it.
+ */
+export function psIdentity(candidates: readonly string[]): Identify {
+  return (pid) => {
+    if (!validPid(pid)) return unknown(`${String(pid)} is not a process id this tool checks`);
+    const absent = kernelSaysAbsent(pid);
+    if (absent === true) return { state: "exited", how: "absent" };
+    if (typeof absent === "string") return unknown(absent);
+    // The system's own ps, by its fixed path, never one PATH would choose; none there, no answer.
+    const ps = candidates.find((path) => existsSync(path));
+    if (ps === undefined) return unknown("the system's ps was not found");
+    const result = spawnSync(ps, ["-o", "stat=", "-o", "lstart=", "-p", String(pid)], {
+      encoding: "utf8",
+      timeout: 5000,
+      // A fixed environment, so every caller reads the same start time: English day and month
+      // names in the C locale, in UTC whatever the caller's time zone.
+      env: { LC_ALL: "C", TZ: "UTC" },
+    });
+    // A process that exited between the two looks makes ps fail; that much is still positive.
+    const failed = (reason: string): Lookup =>
+      kernelSaysAbsent(pid) === true ? { state: "exited", how: "absent" } : unknown(reason);
+    if (result.error) return failed(`could not run ps for pid ${pid}: ${result.error.message}`);
+    if (result.status !== 0) {
+      return failed(`ps for pid ${pid} exited with ${result.status ?? result.signal}`);
+    }
+    // Only one complete row counts: a known state field and a whole start time. Anything
+    // else, such as an error message printed with exit status 0, is not an answer, and
+    // must never become an identity that differs from the recorded one.
+    const rows = result.stdout.split("\n").filter((line) => line.trim() !== "");
+    const match = rows.length === 1 ? PS_ROW.exec(rows[0]!) : null;
+    if (!match) return failed(`could not read ps output for pid ${pid}`);
+    // A zombie has exited; only its parent has not collected it yet.
+    if (match[1]!.startsWith("Z")) return { state: "exited", how: "zombie" };
+    const identity = utcIdentity(match[2]!);
+    if (identity === null) return failed(`could not read ps output for pid ${pid}`);
+    return { state: "alive", identity };
+  };
+}
+
+/** The system's own `ps`, run by its fixed path. */
+export const processIdentity: Identify = psIdentity(SYSTEM_PS);
 
 /** "none": not recorded. "unknown": not determinable, so treated as possibly running. */
 export type ProcessState = "none" | "dead" | "alive" | "unknown";
@@ -216,6 +262,10 @@ export function processVerdict(
   if (pid === undefined && identity === undefined) return { state: "none" };
   if (!validPid(pid) || typeof identity !== "string" || identity === "") {
     return { state: "unknown", reason: "its record cannot identify a process" };
+  }
+  // A start time recorded in a local time zone: neither a match nor a mismatch.
+  if (LOCAL_IDENTITY.test(identity)) {
+    return { state: "unknown", reason: "its record's start time is in a local time zone" };
   }
   const now = identify(pid);
   if (now.state === "unknown") return { state: "unknown", reason: now.reason };

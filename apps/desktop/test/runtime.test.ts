@@ -217,7 +217,7 @@ describe("development eligibility needs proof, not two agreeing files (A1)", () 
   it("refuses anything stale, incomplete, linked or mismatched", () => {
     const refused = (label: string, read: () => unknown) => expect(read(), label).toBeNull();
     refused("gateway gone", provenCheckout("alpha", { gateway: deadProcess() }).read);
-    const reused = { pid: liveProcess().pid, identity: "Thu Jan  1 00:00:00 1970" };
+    const reused = { pid: liveProcess().pid, identity: "1970-01-01T00:00:00Z" };
     refused("gateway pid reused", provenCheckout("alpha", { gateway: reused }).read);
     const unknowable = provenCheckout("alpha");
     refused("gateway alive but its lookup failed", () =>
